@@ -27,43 +27,59 @@ class _HomeScreenState extends State<HomeScreen> {
     final authService = Provider.of<AuthService>(context);
     final taskService = Provider.of<TaskService>(context);
     final userModel = authService.userModel;
+    final isLoggedIn = authService.isLoggedIn;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('マイクロハビットランナー'),
+        // タイトルを削除
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await authService.signOut();
-            },
-          ),
+          // ログイン状態に応じてボタンを切り替え
+          isLoggedIn
+              ? IconButton(
+                  icon: const Icon(Icons.logout),
+                  onPressed: () async {
+                    await authService.signOut();
+                  },
+                  tooltip: 'ログアウト',
+                )
+              : IconButton(
+                  icon: const Icon(Icons.login),
+                  onPressed: () async {
+                    Navigator.pushNamed(context, '/login');
+                  },
+                  tooltip: 'ログイン',
+                ),
         ],
       ),
-      body: userModel == null
-          ? const Center(child: CircularProgressIndicator())
-          : _buildHomeContent(context, userModel, taskService),
+      body: _buildHomeContent(context, userModel, taskService),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
-          if (userModel != null) {
-            _showAddTaskDialog(context, userModel);
-          }
+          _showAddTaskDialog(context, userModel);
         },
         child: const Icon(Icons.add),
       ),
     );
   }
 
-  Widget _buildHomeContent(BuildContext context, UserModel user, TaskService taskService) {
+  Widget _buildHomeContent(BuildContext context, UserModel? user, TaskService taskService) {
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final isLoggedIn = authService.isLoggedIn;
+    
     return Padding(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'こんにちは、${user.email}さん',
-            style: Theme.of(context).textTheme.headlineSmall,
-          ),
+          // ログイン状態に応じて表示を切り替え
+          isLoggedIn && user != null
+              ? Text(
+                  'こんにちは、${user.email}さん',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                )
+              : Text(
+                  'こんにちは、ゲストさん',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
           const SizedBox(height: 8),
           Text(
             '今日のタスク',
@@ -134,8 +150,44 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showAddTaskDialog(BuildContext context, UserModel user) {
+  void _showAddTaskDialog(BuildContext context, UserModel? user) {
+    final authService = Provider.of<AuthService>(context, listen: false);
     final taskService = Provider.of<TaskService>(context, listen: false);
+    final isLoggedIn = authService.isLoggedIn;
+    
+    // ゲストユーザーで既にタスクがある場合はログインを促す
+    if (!isLoggedIn && taskService.hasGuestTask) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('ログインが必要です'),
+          content: const Text('追加のタスクを登録するにはログインが必要です。\nログイン画面に遷移しますか？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('キャンセル'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                Navigator.pushNamed(context, '/login');
+              },
+              child: const Text('ログイン'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    
+    // ログインしていてもユーザーデータがない場合
+    if (isLoggedIn && user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('ユーザー情報を読み込み中です。後ほどお試しください')),
+      );
+      return;
+    }
+    
     final nameController = TextEditingController();
     final timeController = TextEditingController();
     final durationController = TextEditingController();
@@ -145,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('新しいタスク'),
+          title: const Text('新しいタスクを追加'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -154,7 +206,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: nameController,
                   decoration: const InputDecoration(
                     labelText: 'タスク名',
-                    hintText: '例: 朝のストレッチ',
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -162,7 +213,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: timeController,
                   decoration: const InputDecoration(
                     labelText: '予定時間',
-                    hintText: '例: 7:00',
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -170,7 +220,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   controller: durationController,
                   decoration: const InputDecoration(
                     labelText: '所要時間（分）',
-                    hintText: '例: 10',
                   ),
                   keyboardType: TextInputType.number,
                 ),

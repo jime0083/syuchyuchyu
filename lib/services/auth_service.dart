@@ -10,6 +10,9 @@ class AuthService extends ChangeNotifier {
   User? get currentUser => _auth.currentUser;
   Stream<User?> get authStateChanges => _auth.authStateChanges();
   
+  // ログイン状態を確認するプロパティ
+  bool get isLoggedIn => _auth.currentUser != null;
+  
   UserModel? _userModel;
   UserModel? get userModel => _userModel;
   

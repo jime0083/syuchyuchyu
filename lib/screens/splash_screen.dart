@@ -89,39 +89,26 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
         // Initialize user data
         debugPrint('ユーザーデータを初期化します');
         await authService.initUserData();
-        
-        // Navigate to home screen
-        debugPrint('ホーム画面に遷移します');
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
-      } else {
-        // Check if this is the first launch
-        if (_isFirstLaunch) {
-          // Mark as not first launch
-          debugPrint('初回起動のため、フラグを更新します');
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('first_launch', false);
-          
-          // Navigate to onboarding
-          debugPrint('オンボーディング画面に遷移します');
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const OnboardingScreen()),
-          );
-        } else {
-          // Navigate to login
-          debugPrint('ログイン画面に遷移します');
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (_) => const LoginScreen()),
-          );
-        }
       }
+      
+      // 常にホーム画面に遷移（オンボーディングとログインをスキップ）
+      debugPrint('ホーム画面に直接遷移します');
+      
+      // 初回起動フラグを更新
+      if (_isFirstLaunch) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('first_launch', false);
+      }
+      
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const HomeScreen()),
+      );
     } catch (e) {
       debugPrint('画面遷移中にエラーが発生しました: $e');
-      // エラーが発生した場合はログイン画面に遷移
+      // エラーが発生した場合もホーム画面に遷移
       if (mounted) {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
       }
     }

@@ -14,10 +14,23 @@ class TaskService extends ChangeNotifier {
   TaskModel? _priorityTask;
   TaskModel? get priorityTask => _priorityTask;
   
+  // ゲストユーザー用のタスク保存用
+  List<TaskModel> _guestTasks = [];
+  bool _hasGuestTask = false;
+  bool get hasGuestTask => _hasGuestTask;
+  
   // Get all tasks for current user
   Future<void> getTasks() async {
     try {
-      if (_auth.currentUser == null) return;
+      if (_auth.currentUser == null) {
+        // ゲストユーザーの場合はメモリ上のタスクを使用
+        _tasks = _guestTasks;
+        _priorityTask = _tasks.isNotEmpty
+            ? _tasks.firstWhere((task) => task.isPriority, orElse: () => _tasks.first)
+            : null;
+        notifyListeners();
+        return;
+      }
       
       QuerySnapshot snapshot = await _firestore
           .collection('users')
@@ -41,12 +54,40 @@ class TaskService extends ChangeNotifier {
   }
   
   // Add a new task
-  Future<TaskModel?> addTask(String name, String scheduledTime, int duration, bool isPriority, UserModel user) async {
+  Future<TaskModel?> addTask(String name, String scheduledTime, int duration, bool isPriority, UserModel? user) async {
     try {
-      if (_auth.currentUser == null) return null;
+      // ゲストユーザーの場合
+      if (_auth.currentUser == null) {
+        // ゲストユーザーは1つのみタスクを登録可能
+        if (_hasGuestTask) {
+          throw Exception('ゲストユーザーは1つのみタスクを登録できます。\n追加のタスクを登録するにはログインしてください。');
+        }
+        
+        // 新しいタスクを作成
+        TaskModel newTask = TaskModel(
+          id: 'guest-task-${DateTime.now().millisecondsSinceEpoch}',
+          name: name,
+          scheduledTime: scheduledTime,
+          duration: duration,
+          isPriority: true, // ゲストタスクは常に優先タスク
+          isActive: true,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
+        
+        // メモリに保存
+        _guestTasks = [newTask];
+        _hasGuestTask = true;
+        
+        // タスクリストを更新
+        await getTasks();
+        
+        return newTask;
+      }
       
+      // ログインユーザーの場合
       // Check if user has reached free plan limit
-      if (!user.isPremium && _tasks.length >= 2) {
+      if (user != null && !user.isPremium && _tasks.length >= 2) {
         throw Exception('Free plan limit reached');
       }
       
