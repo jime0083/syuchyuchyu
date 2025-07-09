@@ -54,7 +54,7 @@ class TaskService extends ChangeNotifier {
   }
   
   // Add a new task
-  Future<TaskModel?> addTask(String name, String scheduledTime, int duration, bool isPriority, UserModel? user) async {
+  Future<TaskModel?> addTask(String name, String scheduledTime, int duration, bool isPriority, UserModel? user, {String colorKey = 'orange', List<String> weekdays = const ['毎日']}) async {
     try {
       // ゲストユーザーの場合
       if (_auth.currentUser == null) {
@@ -73,6 +73,8 @@ class TaskService extends ChangeNotifier {
           isActive: true,
           createdAt: DateTime.now(),
           updatedAt: DateTime.now(),
+          colorKey: colorKey,
+          weekdays: weekdays,
         );
         
         // メモリに保存
@@ -106,6 +108,8 @@ class TaskService extends ChangeNotifier {
         isActive: true,
         createdAt: DateTime.now(),
         updatedAt: DateTime.now(),
+        colorKey: colorKey,
+        weekdays: weekdays,
       );
       
       // Add to Firestore

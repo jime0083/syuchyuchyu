@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:micro_habit_runner/utils/task_colors.dart';
 
 class TaskModel {
   final String id;
@@ -9,6 +10,8 @@ class TaskModel {
   final bool isActive;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String colorKey; // 色を識別するキー
+  final List<String> weekdays; // 曜日のリスト（複数選択可能）
 
   TaskModel({
     required this.id,
@@ -19,6 +22,8 @@ class TaskModel {
     required this.isActive,
     required this.createdAt,
     required this.updatedAt,
+    this.colorKey = TaskColors.defaultColorKey,
+    this.weekdays = const ['毎日'],
   });
 
   factory TaskModel.fromFirestore(DocumentSnapshot doc) {
@@ -36,6 +41,10 @@ class TaskModel {
       updatedAt: data['updatedAt'] != null
           ? (data['updatedAt'] as Timestamp).toDate()
           : DateTime.now(),
+      colorKey: data['colorKey'] ?? TaskColors.defaultColorKey,
+      weekdays: data['weekdays'] != null
+          ? List<String>.from(data['weekdays'])
+          : ['毎日'],
     );
   }
 
@@ -48,6 +57,8 @@ class TaskModel {
       'isActive': isActive,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      'colorKey': colorKey,
+      'weekdays': weekdays,
     };
   }
 
@@ -60,6 +71,8 @@ class TaskModel {
     bool? isActive,
     DateTime? createdAt,
     DateTime? updatedAt,
+    String? colorKey,
+    List<String>? weekdays,
   }) {
     return TaskModel(
       id: id ?? this.id,
@@ -70,6 +83,8 @@ class TaskModel {
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      colorKey: colorKey ?? this.colorKey,
+      weekdays: weekdays ?? this.weekdays,
     );
   }
 }

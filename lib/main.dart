@@ -7,6 +7,7 @@ import 'package:micro_habit_runner/services/auth_service.dart';
 import 'package:micro_habit_runner/services/task_service.dart';
 import 'package:micro_habit_runner/services/session_service.dart';
 import 'package:micro_habit_runner/services/subscription_service.dart';
+import 'package:micro_habit_runner/services/ad_service.dart';
 import 'package:micro_habit_runner/utils/app_theme.dart';
 import 'package:micro_habit_runner/utils/localization.dart';
 import 'package:micro_habit_runner/screens/splash_screen.dart';
@@ -24,6 +25,7 @@ void main() async {
         ChangeNotifierProvider(create: (_) => TaskService()),
         ChangeNotifierProvider(create: (_) => SessionService()),
         ChangeNotifierProvider(create: (_) => SubscriptionService()),
+        ChangeNotifierProvider(create: (_) => AdService()..initialize()),
       ],
       child: const MicroHabitRunnerApp(),
     ),

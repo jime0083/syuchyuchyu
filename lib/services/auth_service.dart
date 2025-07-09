@@ -1,6 +1,7 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:micro_habit_runner/models/user_model.dart';
 
 class AuthService extends ChangeNotifier {
@@ -54,6 +55,48 @@ class AuthService extends ChangeNotifier {
     } catch (e) {
       if (kDebugMode) {
         print('Error signing in: $e');
+      }
+      rethrow;
+    }
+  }
+  
+  // Sign in with email (alias for signInWithEmailAndPassword)
+  Future<UserCredential?> signInWithEmail(String email, String password) async {
+    return signInWithEmailAndPassword(email, password);
+  }
+  
+  // Sign in with Google
+  Future<UserCredential?> signInWithGoogle() async {
+    try {
+      // Google Sign In flow
+      final GoogleSignInAccount? googleUser = await GoogleSignIn().signIn();
+      if (googleUser == null) {
+        throw Exception('Google sign in was canceled');
+      }
+      
+      // Obtain auth details from request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+      
+      // Create new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+      
+      // Sign in with credential
+      UserCredential result = await _auth.signInWithCredential(credential);
+      
+      // Check if this is a new user
+      if (result.additionalUserInfo?.isNewUser ?? false) {
+        // Create user document in Firestore
+        await _createUserDocument(result.user!.uid, result.user!.email ?? '');
+      }
+      
+      await getUserData();
+      return result;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error signing in with Google: $e');
       }
       rethrow;
     }
