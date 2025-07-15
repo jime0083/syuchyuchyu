@@ -1,4 +1,4 @@
-package com.example.micro_habit_runner
+package micro_habit.runner
 
 import io.flutter.embedding.android.FlutterActivity
 

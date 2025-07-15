@@ -7,6 +7,7 @@ import 'package:micro_habit_runner/services/task_service.dart';
 import 'package:micro_habit_runner/services/ad_service.dart';
 import 'package:micro_habit_runner/utils/app_theme.dart';
 import 'package:micro_habit_runner/utils/task_colors.dart';
+import 'package:micro_habit_runner/screens/timer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -19,8 +20,11 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // タスクを取得
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    // 画面描画後に実行
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // まずユーザーデータを初期化
+      await Provider.of<AuthService>(context, listen: false).initUserData();
+      // その後タスクを取得
       Provider.of<TaskService>(context, listen: false).getTasks();
     });
   }
@@ -35,7 +39,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         // タイトルを削除
-        // 右上に3つのアイコンボタンを追加
+        // 右上に4つのアイコンボタンを追加
         actions: [
           // 履歴ページのノートアイコン
           IconButton(
@@ -61,6 +65,15 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             tooltip: '設定',
           ),
+          // プロフィールの家アイコン (ログイン中のみ表示)
+          if (authService.isLoggedIn)
+            IconButton(
+              icon: const Icon(Icons.account_circle_outlined),
+              onPressed: () {
+                _showProfilePopup(context, userModel);
+              },
+              tooltip: 'プロフィール',
+            ),
         ],
       ),
       body: Column(
@@ -124,44 +137,58 @@ class _HomeScreenState extends State<HomeScreen> {
                     itemCount: taskService.tasks.length,
                     itemBuilder: (context, index) {
                       final task = taskService.tasks[index];
+                      // タスクの色を取得
+                      final taskColor = TaskColors.getColor(task.colorKey);
+                      
                       return Card(
                         margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: Checkbox(
-                            value: !task.isActive,
-                            onChanged: (value) async {
-                              // タスクの有効/無効を切り替える
-                              final updatedTask = task.copyWith(isActive: !(task.isActive));
-                              await taskService.updateTask(updatedTask);
-                            },
-                          ),
-                          title: Text(
-                            task.name,
-                            style: TextStyle(
-                              decoration: !task.isActive
-                                  ? TextDecoration.lineThrough
-                                  : null,
+                        // タスクの色を背景色に設定
+                        color: taskColor, // 透明度を除去して設定した色をそのまま使用
+                        child: InkWell(
+                          // タップ時のアクション
+                          onTap: () {
+                            // タイマー画面への遷移
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => TimerScreen(task: task),
+                              ),
+                            );
+                          },
+                          child: ListTile(
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                            // チェックボックスを削除
+                            title: Text(
+                              task.name,
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                decoration: !task.isActive
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
                             ),
-                          ),
-                          subtitle: Text('${task.scheduledTime} (${task.duration}分)'),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (task.isPriority)
-                                const Icon(Icons.star, color: Colors.amber),
-                              IconButton(
-                                icon: const Icon(Icons.edit),
-                                onPressed: () {
-                                  _showEditTaskDialog(context, task);
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete),
-                                onPressed: () {
-                                  _showDeleteConfirmation(context, task.id);
-                                },
-                              ),
-                            ],
+                            subtitle: Text(
+                              '${task.scheduledTime} (${task.duration}分)',
+                              style: const TextStyle(fontSize: 13),
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (task.isPriority)
+                                  const Icon(Icons.star, color: Colors.amber),
+                                IconButton(
+                                  icon: const Icon(Icons.edit),
+                                  onPressed: () {
+                                    _showEditTaskDialog(context, task);
+                                  },
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.delete),
+                                  onPressed: () {
+                                    _showDeleteConfirmation(context, task.id);
+                                  },
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       );
@@ -177,7 +204,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _notificationsEnabled = false;
   bool _darkModeEnabled = false;
   
-  void _showAddTaskDialog(BuildContext context, UserModel? user) {
+  Future<void> _showAddTaskDialog(BuildContext context, UserModel? user) async {
     final authService = Provider.of<AuthService>(context, listen: false);
     final taskService = Provider.of<TaskService>(context, listen: false);
     final isLoggedIn = authService.isLoggedIn;
@@ -285,12 +312,23 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     
-    // ログインしていてもユーザーデータがない場合
+    // ログインしていてもユーザーデータがない場合は再取得を試みる
     if (isLoggedIn && user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('ユーザー情報を読み込み中です。後ほどお試しください')),
-      );
-      return;
+      try {
+        // ユーザーデータの再取得を試みる
+        user = await authService.getUserData();
+        
+        // 再取得してもユーザーデータが取得できない場合はエラー表示
+        if (user == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('ユーザー情報の取得に失敗しました。もう一度お試しください')),
+          );
+          // ここでreturnしないで、タスク追加を許可する
+        }
+      } catch (e) {
+        debugPrint('ユーザーデータの再取得エラー: $e');
+        // エラーが発生してもタスク追加を許可する
+      }
     }
     
     final nameController = TextEditingController();
@@ -1106,12 +1144,11 @@ void _showDeleteConfirmation(BuildContext context, String taskId) {
       ),
     );
   }
-
+  
   void _showSettingsPopup(BuildContext context) {
-    // 設定の状態を管理する変数
     bool notificationsEnabled = _notificationsEnabled;
     bool darkModeEnabled = _darkModeEnabled;
-
+    
     showDialog(
       context: context,
       builder: (context) => StatefulBuilder(
@@ -1174,6 +1211,299 @@ void _showDeleteConfirmation(BuildContext context, String taskId) {
         },
       ),
     );
+  }
+  
+  // プロフィールポップアップを表示する
+  Future<void> _showProfilePopup(BuildContext context, UserModel? user) async {
+    if (user == null) {
+      return;
+    }
+    
+    final authService = Provider.of<AuthService>(context, listen: false);
+    final usernameController = TextEditingController(text: user.username.isNotEmpty ? user.username : user.email.split('@').first);
+    String profileImageUrl = user.profileImageUrl;
+    bool isUpdating = false;
+    
+    // デフォルトプロフィール画像
+    const defaultProfileImage = 'https://via.placeholder.com/150';
+    
+    await showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text('プロフィール'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // プロフィール画像
+                  GestureDetector(
+                    onTap: () {
+                      // プロフィール画像の変更オプションを表示する
+                      showDialog(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('プロフィール画像'),
+                          content: const Text('将来的には画像アップロード機能が利用可能になります。\n現在はプレミアムユーザーのみがご利用いただけます。'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context),
+                              child: const Text('閉じる'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    child: CircleAvatar(
+                      radius: 50,
+                      backgroundImage: NetworkImage(profileImageUrl.isNotEmpty ? profileImageUrl : defaultProfileImage),
+                      child: profileImageUrl.isEmpty
+                          ? const Icon(Icons.person, size: 50, color: Colors.white70)
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // ユーザー名編集
+                  TextField(
+                    controller: usernameController,
+                    decoration: const InputDecoration(
+                      labelText: 'ユーザー名',
+                      hintText: 'ユーザー名を入力',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  
+                  // メールアドレス表示(編集不可)
+                  TextField(
+                    enabled: false,
+                    controller: TextEditingController(text: user.email),
+                    decoration: const InputDecoration(
+                      labelText: 'メールアドレス',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  
+                  // ログアウトボタン
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        // 確認ダイアログを表示
+                        final bool? result = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('ログアウト確認'),
+                            content: const Text('本当にログアウトしますか？'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(false),
+                                child: const Text('キャンセル'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.of(context).pop(true),
+                                child: const Text('ログアウト'),
+                              ),
+                            ],
+                          ),
+                        );
+                        
+                        // ユーザーがログアウトを確認した場合
+                        if (result == true && context.mounted) {
+                          Navigator.pop(context); // プロフィールダイアログを閉じる
+                          try {
+                            await authService.signOut();
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('ログアウトしました')),
+                              );
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('ログアウトに失敗しました: $e')),
+                              );
+                            }
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.logout),
+                      label: const Text('ログアウト'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.red,
+                        side: const BorderSide(color: Colors.red),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // 現在のプラン表示
+                  Card(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('現在のプラン: ${_getSubscriptionStatusText(user.subscriptionStatus)}',
+                               style: const TextStyle(fontWeight: FontWeight.bold)),
+                          if (user.subscriptionStatus == SubscriptionStatus.trial && user.trialStartDate != null)
+                            Text('試用期間: ${_getRemainingTrialDays(user.trialStartDate!)} 日間残っています'),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  
+                  // プレミアムプランの比較表
+                  if (user.subscriptionStatus == SubscriptionStatus.free)
+                    _buildPlanComparisonWidget(context),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('キャンセル'),
+              ),
+              ElevatedButton(
+                onPressed: isUpdating
+                    ? null
+                    : () async {
+                        setState(() {
+                          isUpdating = true;
+                        });
+                        
+                        try {
+                          // ユーザー名を更新
+                          await authService.updateUserProfile(
+                            username: usernameController.text,
+                            profileImageUrl: profileImageUrl,
+                          );
+                          
+                          if (context.mounted) {
+                            Navigator.pop(context);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('プロフィールを更新しました')),
+                            );
+                          }
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text('更新に失敗しました: $e')),
+                            );
+                          }
+                        } finally {
+                          if (context.mounted) {
+                            setState(() {
+                              isUpdating = false;
+                            });
+                          }
+                        }
+                      },
+                child: isUpdating
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+  
+  // プラン比較ウィジェットを構築
+  Widget _buildPlanComparisonWidget(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('プレミアムプランでできること', 
+                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
+            _buildPlanFeatureRow('無制限のタスク登録', true),
+            _buildPlanFeatureRow('広告の非表示', true),
+            _buildPlanFeatureRow('プロフィール画像のアップロード', true),
+            _buildPlanFeatureRow('詳細な分析レポート', true),
+            _buildPlanFeatureRow('バックアップと同期', true),
+            const SizedBox(height: 20),
+            const Text('無料プランでできること',
+                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 15),
+            _buildPlanFeatureRow('最大2つのタスク登録', false),
+            _buildPlanFeatureRow('基本的な機能', false),
+            _buildPlanFeatureRow('広告あり', false),
+            const SizedBox(height: 20),
+            ElevatedButton(
+              onPressed: () {
+                // 購入画面への遷移や購入プロセスの開始
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('買い物機能は準備中です。今後のアップデートをお待ちください。')),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                minimumSize: const Size(double.infinity, 50),
+              ),
+              child: const Text('プレミアムにアップグレード', style: TextStyle(fontSize: 16)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // プランの機能行を構築
+  Widget _buildPlanFeatureRow(String feature, bool isPremium) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6.0),
+      child: Row(
+        children: [
+          Icon(
+            isPremium ? Icons.check_circle : Icons.check_circle_outline,
+            color: isPremium ? Colors.green : Colors.grey,
+            size: 20,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(feature,
+                style: TextStyle(
+                  color: isPremium ? Colors.black87 : Colors.black54,
+                )),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // サブスクリプションステータステキストを取得
+  String _getSubscriptionStatusText(SubscriptionStatus status) {
+    switch (status) {
+      case SubscriptionStatus.premium:
+        return 'プレミアム';
+      case SubscriptionStatus.trial:
+        return 'トライアル';
+      case SubscriptionStatus.free:
+      default:
+        return '無料';
+    }
+  }
+  
+  // 試用期間の残り日数を計算
+  int _getRemainingTrialDays(DateTime trialStartDate) {
+    final trialDuration = 7; // 7日間トライアル
+    final endDate = trialStartDate.add(Duration(days: trialDuration));
+    final now = DateTime.now();
+    return endDate.difference(now).inDays + 1;
   }
   
   // 色選択ダイアログを表示する

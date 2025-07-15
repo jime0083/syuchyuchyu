@@ -56,10 +56,21 @@ class TaskService extends ChangeNotifier {
   // Add a new task
   Future<TaskModel?> addTask(String name, String scheduledTime, int duration, bool isPriority, UserModel? user, {String colorKey = 'orange', List<String> weekdays = const ['毎日']}) async {
     try {
+      if (kDebugMode) {
+        print('開始: タスク追加プロセス - タスク名: $name');
+      }
+      
       // ゲストユーザーの場合
       if (_auth.currentUser == null) {
+        if (kDebugMode) {
+          print('情報: ゲストユーザーとしてタスクを追加します');
+        }
+        
         // ゲストユーザーは1つのみタスクを登録可能
         if (_hasGuestTask) {
+          if (kDebugMode) {
+            print('エラー: ゲストユーザーは既にタスクを持っています');
+          }
           throw Exception('ゲストユーザーは1つのみタスクを登録できます。\n追加のタスクを登録するにはログインしてください。');
         }
         
@@ -81,6 +92,10 @@ class TaskService extends ChangeNotifier {
         _guestTasks = [newTask];
         _hasGuestTask = true;
         
+        if (kDebugMode) {
+          print('成功: ゲストユーザーのタスクをメモリに保存しました');
+        }
+        
         // タスクリストを更新
         await getTasks();
         
@@ -88,13 +103,23 @@ class TaskService extends ChangeNotifier {
       }
       
       // ログインユーザーの場合
+      if (kDebugMode) {
+        print('情報: ログインユーザー(${_auth.currentUser!.uid})としてタスクを追加します');
+      }
+      
       // Check if user has reached free plan limit
       if (user != null && !user.isPremium && _tasks.length >= 2) {
+        if (kDebugMode) {
+          print('エラー: 無料プランの上限に達しています');
+        }
         throw Exception('Free plan limit reached');
       }
       
       // If setting this task as priority, remove priority from other tasks
       if (isPriority) {
+        if (kDebugMode) {
+          print('処理: 他のタスクの優先フラグをリセットします');
+        }
         await _resetPriorityTasks();
       }
       
@@ -112,12 +137,39 @@ class TaskService extends ChangeNotifier {
         weekdays: weekdays,
       );
       
+      if (kDebugMode) {
+        print('処理: Firestoreにタスクを保存します - ユーザーID: ${_auth.currentUser!.uid}');
+      }
+      
+      // Firestoreにユーザードキュメントが存在するか確認
+      DocumentSnapshot userDoc = await _firestore.collection('users').doc(_auth.currentUser!.uid).get();
+      if (!userDoc.exists) {
+        if (kDebugMode) {
+          print('警告: ユーザードキュメントが存在しません。認証サービスを使用して作成します。');
+        }
+        // ユーザードキュメントが存在しない場合は作成
+        await _firestore.collection('users').doc(_auth.currentUser!.uid).set({
+          'email': _auth.currentUser!.email ?? '',
+          'subscriptionStatus': 'free',
+          'trialUsed': false,
+          'createdAt': Timestamp.fromDate(DateTime.now()),
+          'language': 'ja',
+        });
+        if (kDebugMode) {
+          print('成功: ユーザードキュメントを作成しました');
+        }
+      }
+      
       // Add to Firestore
       DocumentReference docRef = await _firestore
           .collection('users')
           .doc(_auth.currentUser!.uid)
           .collection('tasks')
           .add(newTask.toMap());
+      
+      if (kDebugMode) {
+        print('成功: Firestoreにタスクを保存しました - タスクID: ${docRef.id}');
+      }
       
       // Create complete task with ID
       TaskModel completeTask = newTask.copyWith(id: docRef.id);
@@ -128,7 +180,7 @@ class TaskService extends ChangeNotifier {
       return completeTask;
     } catch (e) {
       if (kDebugMode) {
-        print('Error adding task: $e');
+        print('エラー: タスク追加中に例外が発生 - $e');
       }
       rethrow;
     }

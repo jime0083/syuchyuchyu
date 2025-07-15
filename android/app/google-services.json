@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "479841847740",
+    "project_id": "syuchyuchyu",
+    "storage_bucket": "syuchyuchyu.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:479841847740:android:2136979aba7e521f3a83b9",
+        "android_client_info": {
+          "package_name": "micro_habit.runner"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "479841847740-02eqn7tainr92si2akt2hsjrtevrg34t.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "micro_habit.runner",
+            "certificate_hash": "a201f1f788fec16e3635f30f74b163d0258fbbae"
+          }
+        },
+        {
+          "client_id": "479841847740-75f91v5ra8c703jeg7h0jvk04o01dfon.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDs_KUWSg9nXCYuJEYiQxsAz5wQh1qjD8o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "479841847740-75f91v5ra8c703jeg7h0jvk04o01dfon.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

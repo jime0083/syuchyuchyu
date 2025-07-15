@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:provider/provider.dart';
 import 'package:micro_habit_runner/services/auth_service.dart';
 import 'package:micro_habit_runner/screens/auth/register_screen.dart';
@@ -251,18 +252,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 24),
                   
-                  // Social Login Buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      // Google Sign In Button (placeholder)
-                      _buildSocialButton(
-                        icon: Icons.g_mobiledata,
-                        label: 'Google',
-                        onPressed: () {
-                          // Implement Google Sign In
-                        },
+                  // Error message
+                  if (_errorMessage.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 16.0),
+                      child: Text(
+                        _errorMessage,
+                        style: const TextStyle(color: Colors.red),
+                        textAlign: TextAlign.center,
                       ),
+                    ),
+                    
+                  // ソーシャルログインを削除 - メールとパスワードのみのログイン方式に変更
                       const SizedBox(width: 16),
                       // Apple Sign In Button (placeholder)
                       _buildSocialButton(

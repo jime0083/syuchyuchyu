@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:provider/provider.dart';
 import 'package:micro_habit_runner/services/auth_service.dart';
 import 'package:micro_habit_runner/screens/onboarding_screen.dart';
@@ -40,10 +41,33 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   // 初期化と画面遷移を順番に実行する関数
   Future<void> _initializeAndNavigate() async {
     try {
+      debugPrint('アプリの初期化を開始します');
+      
       // 最初の起動かどうかを確認
       await _checkFirstLaunch();
       
-      // 少し待機してからナビゲーション
+      // Firebaseが初期化されているか確認
+      debugPrint('Firebaseの初期化状態を確認します');
+      try {
+        if (Firebase.apps.isEmpty) {
+          debugPrint('Firebaseが初期化されていません。main.dartで初期化されているはずです');
+        } else {
+          debugPrint('Firebaseは既に初期化されています');
+        }
+      } catch (e) {
+        debugPrint('Firebase初期化状態確認エラー: $e');
+      }
+      
+      // Firebase認証の状態を確認
+      User? currentUser;
+      try {
+        currentUser = FirebaseAuth.instance.currentUser;
+        debugPrint('現在のユーザー状態: ${currentUser != null ? "ログイン済み (${currentUser.email})" : "未ログイン"}');
+      } catch (e) {
+        debugPrint('FirebaseAuth状態確認エラー: $e');
+      }
+      
+      // アニメーションのために少し待機
       await Future.delayed(const Duration(seconds: 2));
       
       // 次の画面に遷移
@@ -81,25 +105,31 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
       debugPrint('画面遷移を開始します');
       final authService = Provider.of<AuthService>(context, listen: false);
       
-      // Check if user is already logged in
-      final currentUser = FirebaseAuth.instance.currentUser;
-      debugPrint('現在のユーザー: ${currentUser?.email ?? 'なし'}');
-      
-      if (currentUser != null) {
-        // Initialize user data
-        debugPrint('ユーザーデータを初期化します');
-        await authService.initUserData();
-      }
-      
-      // 常にホーム画面に遷移（オンボーディングとログインをスキップ）
-      debugPrint('ホーム画面に直接遷移します');
-      
       // 初回起動フラグを更新
       if (_isFirstLaunch) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.setBool('first_launch', false);
       }
       
+      // ユーザーが既にログインしているか確認
+      final currentUser = FirebaseAuth.instance.currentUser;
+      debugPrint('画面遷移時のユーザー状態: ${currentUser?.email ?? 'ゲストユーザー'}');
+      
+      // ログイン済みの場合はユーザーデータを初期化
+      if (currentUser != null) {
+        try {
+          debugPrint('ユーザーデータを初期化します');
+          await authService.initUserData();
+          debugPrint('ユーザーデータの初期化が完了しました');
+        } catch (e) {
+          debugPrint('ユーザーデータの初期化中にエラーが発生しました: $e');
+        }
+      } else {
+        debugPrint('ゲストユーザーとして続行します');
+      }
+      
+      // オンボーディングとログイン画面をスキップして直接ホーム画面に遷移
+      debugPrint('直接ホーム画面に遷移します');
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(builder: (_) => const HomeScreen()),
       );

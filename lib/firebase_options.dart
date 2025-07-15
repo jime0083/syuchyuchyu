@@ -38,23 +38,22 @@ class DefaultFirebaseOptions {
     }
   }
 
-  // Placeholder configurations - replace with your actual Firebase project configurations
+  // syuchyuchyuプロジェクトのFirebase設定
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'YOUR_API_KEY',
-    appId: 'YOUR_APP_ID',
-    messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    authDomain: 'YOUR_AUTH_DOMAIN',
-    storageBucket: 'YOUR_STORAGE_BUCKET',
-    measurementId: 'YOUR_MEASUREMENT_ID',
+    apiKey: 'AIzaSyCsRSgRdNDKa2Akg-DZ7cQkaTqJnY2z00c',
+    appId: '1:847409315449:web:2430c791b9d5c897a14d5b',
+    messagingSenderId: '847409315449',
+    projectId: 'syuchyuchyu',
+    authDomain: 'syuchyuchyu.firebaseapp.com',
+    storageBucket: 'syuchyuchyu.appspot.com',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'YOUR_API_KEY',
-    appId: 'YOUR_APP_ID',
-    messagingSenderId: 'YOUR_MESSAGING_SENDER_ID',
-    projectId: 'YOUR_PROJECT_ID',
-    storageBucket: 'YOUR_STORAGE_BUCKET',
+    apiKey: 'AIzaSyDs_KUWSg9nXCYuJEYiQxsAz5wQh1qjD8o',
+    appId: '1:479841847740:android:2136979aba7e521f3a83b9',
+    messagingSenderId: '479841847740',
+    projectId: 'syuchyuchyu',
+    storageBucket: 'syuchyuchyu.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
