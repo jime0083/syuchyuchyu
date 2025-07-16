@@ -161,6 +161,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               task.name,
                               style: TextStyle(
                                 fontWeight: FontWeight.bold,
+                                fontSize: 36,
+                                color: Colors.white,
                                 decoration: !task.isActive
                                     ? TextDecoration.lineThrough
                                     : null,
@@ -339,7 +341,7 @@ class _HomeScreenState extends State<HomeScreen> {
     List<String> selectedWeekdays = ['毎日'];
 
     // 所要時間の選択肢
-    final List<int> durationOptions = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
+    final List<int> durationOptions = [1, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
 
     showDialog(
       context: context,
@@ -671,7 +673,7 @@ void _showEditTaskDialog(BuildContext context, task) {
   List<String> selectedWeekdays = task.weekdays ?? ['毎日'];
 
   // 所要時間の選択肢
-  final List<int> durationOptions = [5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
+  final List<int> durationOptions = [1, 5, 10, 15, 20, 25, 30, 45, 60, 90, 120];
 
   showDialog(
     context: context,
