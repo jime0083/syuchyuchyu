@@ -14,6 +14,7 @@ import 'package:micro_habit_runner/services/ad_service.dart';
 import 'package:micro_habit_runner/utils/app_theme.dart';
 import 'package:micro_habit_runner/utils/localization.dart';
 import 'package:micro_habit_runner/screens/home_screen.dart';
+import 'package:micro_habit_runner/screens/main_screen.dart';
 import 'package:micro_habit_runner/screens/timer_screen.dart';
 import 'package:micro_habit_runner/models/task_model.dart';
 

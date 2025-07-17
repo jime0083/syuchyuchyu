@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'dart:async'; // Timer用のimport追加
 import 'package:provider/provider.dart';
 import 'package:micro_habit_runner/models/user_model.dart';
 import 'package:micro_habit_runner/services/auth_service.dart';
@@ -17,16 +18,71 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  // データ読み込み状態を管理
+  bool _isLoading = true;
+  
+  // 表示する肉アイコンの数を管理
+  int _visibleIconCount = 0;
+  Timer? _iconAnimationTimer;
+  
   @override
   void initState() {
     super.initState();
-    // 画面描画後に実行
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    _loadData();
+  }
+  
+  @override
+  void dispose() {
+    // タイマーが存在すればキャンセル
+    _iconAnimationTimer?.cancel();
+    super.dispose();
+  }
+
+  // データ読み込み処理を別メソッドに分離
+  Future<void> _loadData() async {
+    // タイマーが次の読み込み前に存在する場合はキャンセル
+    _iconAnimationTimer?.cancel();
+    
+    // 読み込み開始、アイコンを初期化
+    setState(() {
+      _isLoading = true;
+      _visibleIconCount = 0;
+    });
+    
+    // 肉アイコンアニメーション用タイマーを開始
+    _iconAnimationTimer = Timer.periodic(const Duration(milliseconds: 300), (timer) {
+      setState(() {
+        // 5つになったらゼロに戻す、それ以外は増やす
+        if (_visibleIconCount >= 5) {
+          _visibleIconCount = 0;
+        } else {
+          _visibleIconCount++;
+        }
+      });
+    });
+    
+    try {
       // まずユーザーデータを初期化
       await Provider.of<AuthService>(context, listen: false).initUserData();
       // その後タスクを取得
-      Provider.of<TaskService>(context, listen: false).getTasks();
-    });
+      await Provider.of<TaskService>(context, listen: false).getTasks();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('データの読み込み中にエラーが発生しました: ${e.toString()}')),
+        );
+      }
+    } finally {
+      // タイマーをキャンセル
+      _iconAnimationTimer?.cancel();
+      
+      // 読み込み完了
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -113,27 +169,73 @@ class _HomeScreenState extends State<HomeScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: taskService.tasks.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.check_circle_outline,
-                          size: 64,
-                          color: Colors.grey,
+            child: _isLoading 
+              // ローディング中の表示
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: List.generate(5, (index) => 
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                            child: index < _visibleIconCount 
+                              ? Image.asset(
+                                'assets/images/niku2.png',
+                                height: 48,
+                                width: 48,
+                              )
+                              : Container(
+                                height: 48,
+                                width: 48,
+                              ),
+                          ),
                         ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'タスクがありません',
-                          style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'データを読み込み中...',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
+                )
+              // ローディング完了後の表示
+              : taskService.tasks.isEmpty
+                ? RefreshIndicator(
+                    onRefresh: () => _loadData(),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(),
+                      child: SizedBox(
+                        height: MediaQuery.of(context).size.height * 0.7, // 高さを確保してスクロール可能に
+                        child: Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(
+                                Icons.check_circle_outline,
+                                size: 64,
+                                color: Colors.grey,
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                'タスクがありません',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 8),
+                              const Text('右下の+ボタンからタスクを追加しましょう'),
+                              const SizedBox(height: 24),
+                              const Text('下に引っ張るとデータを再読み込みします', style: TextStyle(color: Colors.grey)),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 8),
-                        const Text('右下の+ボタンからタスクを追加しましょう'),
-                      ],
+                      ),
                     ),
                   )
-                : ListView.builder(
+                : RefreshIndicator(
+                  onRefresh: () => _loadData(),
+                  child: ListView.builder(
                     itemCount: taskService.tasks.length,
                     itemBuilder: (context, index) {
                       final task = taskService.tasks[index];
@@ -196,6 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       );
                     },
                   ),
+                ),
           ),
         ],
       ),
@@ -210,7 +313,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final authService = Provider.of<AuthService>(context, listen: false);
     final taskService = Provider.of<TaskService>(context, listen: false);
     final isLoggedIn = authService.isLoggedIn;
-    
+  
+    // 無料ユーザーで既に2つのタスクがある場合は課金を促すポップアップを表示
+    if (user != null && !user.isPremium && taskService.tasks.length >= 2) {
+      _showSubscriptionPopup(context);
+      return;
+    }
+  
     // ゲストユーザーで既にタスクがある場合はログインを促す
     if (!isLoggedIn && taskService.hasGuestTask) {
       final emailController = TextEditingController();
@@ -633,6 +742,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           return;
                         }
 
+                        // タスクの追加を試みる
                         try {
                           await taskService.addTask(
                             nameController.text,
@@ -1432,16 +1542,8 @@ void _showDeleteConfirmation(BuildContext context, String taskId) {
             const SizedBox(height: 15),
             _buildPlanFeatureRow('無制限のタスク登録', true),
             _buildPlanFeatureRow('広告の非表示', true),
-            _buildPlanFeatureRow('プロフィール画像のアップロード', true),
-            _buildPlanFeatureRow('詳細な分析レポート', true),
-            _buildPlanFeatureRow('バックアップと同期', true),
-            const SizedBox(height: 20),
-            const Text('無料プランでできること',
-                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 15),
-            _buildPlanFeatureRow('最大2つのタスク登録', false),
-            _buildPlanFeatureRow('基本的な機能', false),
-            _buildPlanFeatureRow('広告あり', false),
+            _buildPlanFeatureRow('あなたの集中力の傾向を可視化する機能をアンロック', true),
+            _buildPlanFeatureRow('あなたの集中に対してアドバイス', true),
             const SizedBox(height: 20),
             ElevatedButton(
               onPressed: () {
@@ -1508,6 +1610,52 @@ void _showDeleteConfirmation(BuildContext context, String taskId) {
     return endDate.difference(now).inDays + 1;
   }
   
+  // サブスクリプション促進ポップアップを表示する
+  void _showSubscriptionPopup(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('タスク登録数の上限に達しました'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('無料プランでは最大2つのタスクしか登録できません。'),
+              const SizedBox(height: 8),
+              const Text('プレミアムにアップグレードすると、無制限のタスクを登録できるようになります。'),
+              const SizedBox(height: 20),
+              _buildPlanComparisonWidget(context),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.grey[700],
+            ),
+            child: const Text('後で'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // 購入プロセスを開始 - 将来の実装のためのプレースホルダー
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('買い物機能は準備中です。今後のアップデートをお待ちください。')),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).primaryColor,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('アップグレード'),
+          ),
+        ],
+      ),
+    );
+  }
+
   // 色選択ダイアログを表示する
   void _showColorPickerDialog(BuildContext context, String currentColorKey, Function(String) onColorSelected) {
     showDialog(

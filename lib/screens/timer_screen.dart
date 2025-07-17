@@ -244,11 +244,13 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
       print('Animation completed');
       Future.delayed(const Duration(seconds: 5), () {
         if (mounted) {
-          setState(() {
-            _showCelebration = false;
-          });
+          // 自動的に閉じる場合もホーム画面に移動
+          Navigator.of(context).pushNamedAndRemoveUntil(
+            '/', // ホーム画面のルート
+            (route) => false, // すべてのルートを削除
+          );
           _celebrationController.reset();
-          print('Animation reset after delay');
+          print('Navigation to home after animation completion');
         }
       });
     });
@@ -542,12 +544,26 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
                               ),
                               child: Column(
                                 children: [
-                                  Text(
-                                    '${widget.task.name} 達成!!',
-                                    style: const TextStyle(
-                                      fontSize: 28,
-                                      fontWeight: FontWeight.bold,
-                                    ),
+                                  Column(
+                                    children: [
+                                      if (widget.task.isPriority) 
+                                        const Text(
+                                          '優先タスク達成!!',
+                                          style: TextStyle(
+                                            fontSize: 24,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.red,
+                                          ),
+                                        ),
+                                      Text(
+                                        '${widget.task.name} 達成!!',
+                                        style: const TextStyle(
+                                          fontSize: 28,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ],
                                   ),
                                   const SizedBox(height: 10),
                                   Text(
@@ -586,10 +602,11 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
                                       textStyle: const TextStyle(fontSize: 18),
                                     ),
                                     onPressed: () {
-                                      setState(() {
-                                        _showCelebration = false;
-                                      });
-                                      _celebrationController.reset();
+                                      // ホーム画面に戻る（全てのルートを削除してホームに移動）
+                                      Navigator.of(context).pushNamedAndRemoveUntil(
+                                        '/', // ホーム画面のルート
+                                        (route) => false, // すべてのルートを削除
+                                      );
                                     },
                                   ),
                                 ],
