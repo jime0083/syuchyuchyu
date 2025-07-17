@@ -37,20 +37,33 @@ class _HistoryScreenState extends State<HistoryScreen> {
       final sessionService = Provider.of<SessionService>(context, listen: false);
       
       // セッションデータを取得
+      print('履歴ページ: セッションデータの取得を開始');
       await sessionService.getSessions();
       _sessions = sessionService.sessions;
+      print('履歴ページ: セッションデータ取得完了 - ${_sessions.length}件のセッション');
+      
+      if (_sessions.isNotEmpty) {
+        for (var i = 0; i < _sessions.length && i < 3; i++) {
+          print('セッション$i: ${_sessions[i].taskName}, 日付: ${_sessions[i].actualStartTime}, ID: ${_sessions[i].id}');
+        }
+      } else {
+        print('履歴ページ: セッションデータが0件です');
+      }
       
       // 累計統計を取得
       _totalStats = await sessionService.getTotalStats();
+      print('履歴ページ: 累計統計取得完了 - タスク数: ${_totalStats['totalTasks']}, 合計時間: ${_totalStats['totalMinutes']}分, 連続日数: ${_totalStats['streakDays'] ?? 0}日');
       
       // 直近30日のセッションマッピングを作成
       _createDailySessionMapping();
+      print('履歴ページ: 日付マッピング作成完了');
       
       // 連続達成日数を計算
       _calculateStreakDays();
+      print('履歴ページ: 連続達成日数: $_streakDays日');
       
     } catch (e) {
-      debugPrint('履歴データの読み込みエラー: $e');
+      print('履歴データの読み込みエラー: $e');
       // エラー表示
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -386,16 +399,37 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final hasSession = sessions.isNotEmpty;
     
     // セッションがある場合はタスクの色を使用、ない場合は白
-    Color blockColor = Colors.white;
+    Color blockColor = Colors.grey.shade100;
     
     if (hasSession && sessions.isNotEmpty) {
       // セッションからタスクIDを取得し、色に変換
       final taskId = sessions.first.taskId;
-      final colorKey = TaskColors.colorMap.keys.contains(taskId.hashCode % TaskColors.colorMap.length)
-          ? TaskColors.colorMap.keys.elementAt(taskId.hashCode % TaskColors.colorMap.length)
-          : TaskColors.defaultColorKey;
+      String colorKey = 'orange'; // デフォルトの色
       
-      blockColor = TaskColors.colorMap[colorKey]!;
+      // データベースから取得した色情報がない場合はハッシュコードを使用して割り当て
+      final availableColorKeys = TaskColors.colorMap.keys.toList();
+      if (availableColorKeys.isNotEmpty) {
+        colorKey = availableColorKeys[taskId.hashCode % availableColorKeys.length];
+      }
+      
+      blockColor = TaskColors.colorMap[colorKey] ?? Colors.orange;
+    }
+    
+    // セッションから優先タスクかどうかを確認
+    // 現在のセッションモデルには優先タスクの情報が含まれていないため、タスク名から推定
+    bool isPriorityTask = false;
+    if (sessions.isNotEmpty) {
+      // 優先タスクを示すタスク名の特徴（例: 「重要」「優先」「★」などが含まれている場合）
+      // ここでは簡単な例として、メモに「優先」が含まれている場合は優先タスクとして処理
+      for (var session in sessions) {
+        if (session.memo.contains('優先') || 
+            session.taskName.contains('優先') || 
+            session.taskName.contains('重要') || 
+            session.taskName.contains('★')) {
+          isPriorityTask = true;
+          break;
+        }
+      }
     }
     
     return Container(
@@ -416,7 +450,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
           ),
-          if (hasPriorityTask)
+          if (isPriorityTask)
             const Positioned(
               top: 2,
               right: 2,

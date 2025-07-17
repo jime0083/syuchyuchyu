@@ -264,16 +264,77 @@ class SessionService extends ChangeNotifier {
       // Calculate statistics
       int totalTasks = allSessions.length;
       int totalMinutes = allSessions.fold(0, (sum, session) => sum + session.actualDuration);
+      int streakDays = await calculateStreakDays();
       
       return {
         'totalTasks': totalTasks,
         'totalMinutes': totalMinutes,
+        'streakDays': streakDays,
       };
     } catch (e) {
       if (kDebugMode) {
         print('Error getting total stats: $e');
       }
       return {};
+    }
+  }
+  
+  // Calculate consecutive days streak
+  Future<int> calculateStreakDays() async {
+    try {
+      if (_auth.currentUser == null) return 0;
+      
+      // 現在の日付
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      
+      int streakCount = 0;
+      DateTime checkDate = today;
+      bool streakBroken = false;
+      
+      // 最大で365日前まで調べる
+      for (int i = 0; i < 365; i++) {
+        // 日付の始まりと終わりを設定
+        final startOfDay = DateTime(checkDate.year, checkDate.month, checkDate.day);
+        final endOfDay = DateTime(checkDate.year, checkDate.month, checkDate.day, 23, 59, 59);
+        
+        // その日のセッションを取得
+        QuerySnapshot snapshot = await _firestore
+            .collection('users')
+            .doc(_auth.currentUser!.uid)
+            .collection('sessions')
+            .where('actualStartTime', isGreaterThanOrEqualTo: Timestamp.fromDate(startOfDay))
+            .where('actualStartTime', isLessThanOrEqualTo: Timestamp.fromDate(endOfDay))
+            .limit(1) // 1つでも存在すれば十分
+            .get();
+        
+        // その日にセッションがあるか
+        final hasSessionOnDay = snapshot.docs.isNotEmpty;
+        
+        if (hasSessionOnDay) {
+          // セッションがある場合はカウント
+          streakCount++;
+        } else {
+          // 今日の場合はスキップ（今日はまだ終わっていないので）
+          if (checkDate.isAtSameMomentAs(today)) {
+            // 今日はカウントせず継続
+          } else {
+            // 今日以外でセッションがない日があればストリークは終了
+            streakBroken = true;
+            break;
+          }
+        }
+        
+        // 前日に移動
+        checkDate = checkDate.subtract(const Duration(days: 1));
+      }
+      
+      return streakCount;
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error calculating streak days: $e');
+      }
+      return 0;
     }
   }
 }

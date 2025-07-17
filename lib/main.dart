@@ -97,7 +97,7 @@ class MicroHabitRunnerApp extends StatelessWidget {
         Locale('ja', ''), // Japanese
       ],
       // ホーム画面の設定
-      home: const HomeScreen(),
+      home: const MainScreen(),
       // ルート設定
       routes: {
         '/timer': (context) {

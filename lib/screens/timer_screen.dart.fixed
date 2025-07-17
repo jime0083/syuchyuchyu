@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:micro_habit_runner/models/task_model.dart';
-import 'package:micro_habit_runner/models/session_model.dart' show ConcentrationLevel, SessionModel;
+import 'package:micro_habit_runner/models/session_model.dart';
 import 'package:micro_habit_runner/services/session_service.dart';
 import 'package:micro_habit_runner/utils/task_colors.dart';
 
@@ -255,14 +255,22 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
           ? _totalSeconds - _remainingSeconds // カウントダウンモードでは設定時間からの減少分
           : _totalSeconds + _extraSeconds; // ストップウォッチモードでは設定時間＋追加時間
       
-      // Firestoreに保存
-      sessionService.saveSession(
-        task: widget.task,
+      // セッションデータ作成
+      final sessionData = SessionModel(
+        id: '', // IDはサービス側で生成
+        taskId: widget.task.id,
+        taskName: widget.task.name,
         startTime: _startTime,
         endTime: _endTime,
-        concentrationLevel: ConcentrationLevel.medium, // デフォルト値を設定
+        duration: duration,
+        color: widget.task.color,
+        categoryId: widget.task.categoryId,
+        phoneInteractionCount: _phoneInteractionCount,
         memo: _memoController.text, // メモの内容を保存
-      ).then((_) {
+      );
+      
+      // Firestoreに保存
+      sessionService.addSession(sessionData).then((_) {
         print('セッションデータを保存しました');
         setState(() {
           _isSessionSaved = true;
@@ -345,7 +353,7 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
     // 背景色とテキスト色を設定（モードによって変更）
     final backgroundColor = _currentMode == TimerMode.countdown
         ? Colors.blueGrey[900]
-        : TaskColors.getColor(widget.task.colorKey).withOpacity(0.9);
+        : TaskColors.getColorByIndex(widget.task.color).withOpacity(0.9);
     
     final textColor = _currentMode == TimerMode.countdown
         ? Colors.white
@@ -426,7 +434,7 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
                         value: _remainingSeconds / _totalSeconds,
                         backgroundColor: Colors.grey[300],
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          TaskColors.getColor(widget.task.colorKey),
+                          TaskColors.getColorByIndex(widget.task.color),
                         ),
                         minHeight: 10,
                       ),
