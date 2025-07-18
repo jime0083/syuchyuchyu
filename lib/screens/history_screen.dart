@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:micro_habit_runner/models/session_model.dart';
+import 'package:micro_habit_runner/models/task_model.dart';
 import 'package:micro_habit_runner/services/session_service.dart';
+import 'package:micro_habit_runner/services/task_service.dart';
 import 'package:micro_habit_runner/utils/task_colors.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -13,7 +15,7 @@ class HistoryScreen extends StatefulWidget {
   State<HistoryScreen> createState() => _HistoryScreenState();
 }
 
-class _HistoryScreenState extends State<HistoryScreen> {
+class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderStateMixin {
   bool _isLoading = true;
   List<SessionModel> _sessions = [];
   Map<String, dynamic> _totalStats = {};
@@ -22,10 +24,33 @@ class _HistoryScreenState extends State<HistoryScreen> {
   // 直近30日の日付とセッションマッピング
   final Map<DateTime, List<SessionModel>> _dailySessions = {};
   
+  // タスクIDと色情報のマッピング
+  Map<String, String> _taskColorMapping = {};
+  
+  // タスクIDと優先フラグのマッピング
+  Map<String, bool> _taskPriorityMapping = {};
+  
+  // カードアニメーション用
+  late AnimationController _animationController;
+  bool _showCardAnimation = true;
+  
   @override
   void initState() {
     super.initState();
+    
+    // アニメーションコントローラの初期化
+    _animationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    
     _loadData();
+  }
+  
+  @override
+  void dispose() {
+    _animationController.dispose();
+    super.dispose();
   }
   
   Future<void> _loadData() async {
@@ -34,7 +59,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
     });
     
     try {
+      // セッションサービス取得
       final sessionService = Provider.of<SessionService>(context, listen: false);
+      // タスクサービス取得
+      final taskService = Provider.of<TaskService>(context, listen: false);
       
       // セッションデータを取得
       print('履歴ページ: セッションデータの取得を開始');
@@ -42,9 +70,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
       _sessions = sessionService.sessions;
       print('履歴ページ: セッションデータ取得完了 - ${_sessions.length}件のセッション');
       
+      // タスクデータを取得して色情報とマッピング
+      await taskService.getTasks();
+      _taskColorMapping.clear();
+      _taskPriorityMapping.clear();
+      
+      // すべてのタスクについて色情報と優先度情報をマッピング
+      for (var task in taskService.tasks) {
+        _taskColorMapping[task.id] = task.colorKey;
+        _taskPriorityMapping[task.id] = task.isPriority;
+        print('タスク ${task.name}: カラーキー=${task.colorKey}, 優先=${task.isPriority}');
+      }
+      print('タスク情報マッピング完了: ${_taskColorMapping.length}件');
+      
       if (_sessions.isNotEmpty) {
         for (var i = 0; i < _sessions.length && i < 3; i++) {
-          print('セッション$i: ${_sessions[i].taskName}, 日付: ${_sessions[i].actualStartTime}, ID: ${_sessions[i].id}');
+          String colorKey = _taskColorMapping[_sessions[i].taskId] ?? TaskColors.defaultColorKey;
+          bool isPriority = _taskPriorityMapping[_sessions[i].taskId] ?? false;
+          print('セッション$i: ${_sessions[i].taskName}, 日付: ${_sessions[i].actualStartTime}, ID: ${_sessions[i].id}, 色: $colorKey, 優先: $isPriority');
         }
       } else {
         print('履歴ページ: セッションデータが0件です');
@@ -61,6 +104,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       // 連続達成日数を計算
       _calculateStreakDays();
       print('履歴ページ: 連続達成日数: $_streakDays日');
+      
+      // アニメーションリセット&開始
+      _animationController.reset();
+      _showCardAnimation = true;
+      _animationController.forward();
       
     } catch (e) {
       print('履歴データの読み込みエラー: $e');
@@ -247,7 +295,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
     
     return SizedBox(
-      height: 120,
+      height: 150, // 少し高さを増やす
       child: Stack(
         alignment: Alignment.center,
         children: List.generate(recentSessions.length, (index) {
@@ -255,57 +303,74 @@ class _HistoryScreenState extends State<HistoryScreen> {
           final reverseIndex = recentSessions.length - 1 - index;
           final session = recentSessions[reverseIndex];
           
-          // タスクカードの色を取得
-          final colorKey = TaskColors.colorMap.keys.contains(session.taskId.hashCode % TaskColors.colorMap.length)
-            ? TaskColors.colorMap.keys.elementAt(session.taskId.hashCode % TaskColors.colorMap.length)
-            : TaskColors.defaultColorKey;
+          // タスクの実際の色を取得
+          String colorKey = _taskColorMapping[session.taskId] ?? TaskColors.defaultColorKey;
+          final cardColor = TaskColors.getColor(colorKey);
           
-          final cardColor = TaskColors.colorMap[colorKey]!;
+          // カードのアニメーション
+          // アニメーション用の値を計算
+          final startPos = -200.0;
+          final endPos = index * 8.0;
           
-          return Positioned(
-            // 上に行くほど少しずつ上にオフセット
-            top: index * 8.0,
-            child: Transform.rotate(
-              // わずかにランダムな角度を付ける
-              angle: (index * 0.05) * (index % 2 == 0 ? 1 : -1),
-              child: SizedBox(
-                width: 240,
-                height: 80,
-                child: Card(
-                  color: cardColor,
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          session.taskName,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                          textAlign: TextAlign.center,
-                          overflow: TextOverflow.ellipsis,
+          return AnimatedBuilder(
+            animation: _animationController,
+            builder: (context, child) {
+              // アニメーション効果（各カードを少しずつ遅延させる）
+              final delay = index * 0.2; // カード間の遅延
+              double animationProgress = _showCardAnimation ? 
+                  ((_animationController.value - delay) / (1.0 - delay)).clamp(0.0, 1.0) :
+                  1.0;
+              
+              // 位置を計算（上から降りてくる）
+              final currentPos = _showCardAnimation ?
+                  startPos + (endPos - startPos) * Curves.bounceOut.transform(animationProgress) :
+                  endPos;
+              
+              return Positioned(
+                top: currentPos,
+                child: Transform.rotate(
+                  // わずかにランダムな角度を付ける
+                  angle: (index * 0.05) * (index % 2 == 0 ? 1 : -1),
+                  child: SizedBox(
+                    width: 240,
+                    height: 80,
+                    child: Card(
+                      color: cardColor,
+                      elevation: 4,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              session.taskName,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              DateFormat('yyyy/MM/dd').format(session.actualStartTime),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          DateFormat('yyyy/MM/dd').format(session.actualStartTime),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Colors.white70,
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           );
         }),
       ),
@@ -378,11 +443,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 final sessions = sortedDates[date] ?? [];
                 
                 // 優先タスクの有無を確認
-                final hasPriorityTask = sessions.any((session) {
-                  // セッションの実際のタスクデータが必要。現在のモデルでは対応できない場合はUIだけ実装
-                  // 実際のアプリではTaskServiceを使ってタスク情報を取得する実装が必要
-                  return false; // 暫定的にfalse
-                });
+                bool hasPriorityTask = false;
+                
+                // 1. タスク優先度マッピングから確認
+                for (var session in sessions) {
+                  // タスクIDからの優先度確認
+                  if (_taskPriorityMapping[session.taskId] == true) {
+                    hasPriorityTask = true;
+                    break;
+                  }
+                  
+                  // タスク名やメモからも確認（バックアップ）
+                  if (session.memo.contains('優先') || 
+                      session.memo.contains('重要') ||
+                      session.memo.contains('★') ||
+                      session.taskName.contains('優先') ||
+                      session.taskName.contains('重要') ||
+                      session.taskName.contains('★')) {
+                    hasPriorityTask = true;
+                    break;
+                  }
+                }
                 
                 return _buildDateBlock(date, sessions, hasPriorityTask);
               },
@@ -402,36 +483,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
     Color blockColor = Colors.grey.shade100;
     
     if (hasSession && sessions.isNotEmpty) {
-      // セッションからタスクIDを取得し、色に変換
+      // セッションからタスクIDを取得
       final taskId = sessions.first.taskId;
-      String colorKey = 'orange'; // デフォルトの色
       
-      // データベースから取得した色情報がない場合はハッシュコードを使用して割り当て
-      final availableColorKeys = TaskColors.colorMap.keys.toList();
-      if (availableColorKeys.isNotEmpty) {
-        colorKey = availableColorKeys[taskId.hashCode % availableColorKeys.length];
-      }
+      // タスクIDからタスク色を取得
+      String colorKey = _taskColorMapping[taskId] ?? TaskColors.defaultColorKey;
       
-      blockColor = TaskColors.colorMap[colorKey] ?? Colors.orange;
+      // ログ出力
+      print('日付ブロック ${date.toString().substring(0, 10)} - タスクID: $taskId, 使用カラーキー: $colorKey');
+      
+      // 色を取得
+      blockColor = TaskColors.getColor(colorKey);
     }
     
-    // セッションから優先タスクかどうかを確認
-    // 現在のセッションモデルには優先タスクの情報が含まれていないため、タスク名から推定
-    bool isPriorityTask = false;
-    if (sessions.isNotEmpty) {
-      // 優先タスクを示すタスク名の特徴（例: 「重要」「優先」「★」などが含まれている場合）
-      // ここでは簡単な例として、メモに「優先」が含まれている場合は優先タスクとして処理
-      for (var session in sessions) {
-        if (session.memo.contains('優先') || 
-            session.taskName.contains('優先') || 
-            session.taskName.contains('重要') || 
-            session.taskName.contains('★')) {
-          isPriorityTask = true;
-          break;
-        }
-      }
-    }
-    
+    // 優先タスクかどうかはパラメータから取得
     return Container(
       decoration: BoxDecoration(
         color: hasSession ? blockColor : Colors.grey.shade100,
@@ -450,7 +515,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
           ),
-          if (isPriorityTask)
+          if (hasPriorityTask)
             const Positioned(
               top: 2,
               right: 2,
