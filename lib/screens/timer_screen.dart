@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:micro_habit_runner/models/task_model.dart';
-import 'package:micro_habit_runner/models/session_model.dart' show ConcentrationLevel, SessionModel;
+import 'package:micro_habit_runner/models/session_model.dart';
 import 'package:micro_habit_runner/services/session_service.dart';
 import 'package:micro_habit_runner/utils/task_colors.dart';
 
@@ -44,18 +44,18 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
   // ストップウォッチ停止中フラグ（停止操作時のカウント除外用）
   bool _isStoppingStopwatch = false;
   
-  // タスク達成時のアニメーションコントローラ
-  late AnimationController _completionAnimationController;
-  late Animation<double> _slideAnimation;
+  // ラット画像のスライドインアニメーション用コントローラー
+  late AnimationController _ratAnimationController;
+  late Animation<Offset> _ratSlideAnimation;
 
   // メモ用テキストコントローラー
   final TextEditingController _memoController = TextEditingController();
   
-  // 集中度評価
-  ConcentrationLevel _concentrationLevel = ConcentrationLevel.medium;
-  
   // セッションが保存済みかどうかのフラグ
   bool _isSessionSaved = false;
+  
+  // 集中レベル
+  ConcentrationLevel _concentrationLevel = ConcentrationLevel.medium;
 
   @override
   void initState() {
@@ -82,16 +82,18 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
       setState(() {}); // アニメーション値が変わるたびに画面を更新
     });
     
-    // タスク達成時のアニメーション
-    _completionAnimationController = AnimationController(
+    // ラット画像のスライドアニメーション用コントローラーの設定
+    _ratAnimationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
+      duration: const Duration(milliseconds: 1500), // スライドインに1.5秒
     );
-    _slideAnimation = Tween<double>(
-      begin: 1.5,  // 画面外から
-      end: 0.0,    // 目標位置まで
+    
+    // 画面外から上にスライドインするアニメーション
+    _ratSlideAnimation = Tween<Offset>(
+      begin: const Offset(0, 1.5), // 画面下から
+      end: const Offset(0, 0), // 中央に
     ).animate(CurvedAnimation(
-      parent: _completionAnimationController,
+      parent: _ratAnimationController,
       curve: Curves.elasticOut,
     ));
     
@@ -107,7 +109,7 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
     _timer?.cancel();
     _animationController.dispose();
     _celebrationController.dispose();
-    _completionAnimationController.dispose();
+    _ratAnimationController.dispose(); // ラットアニメーションコントローラーも破棄
     _memoController.dispose(); // メモ用テキストコントローラーを破棄
     super.dispose();
   }
@@ -246,33 +248,48 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
   }
   
   // セッションデータをFirestoreに保存
-  Future<void> _saveSessionData() async {
-    if (_isSessionSaved) {
-      print('セッションはすでに保存されています');
-      return;
-    }
-    
-    try {
+  void _saveSessionData() {
+    // セッションがまだ保存されていない場合のみ実行
+    if (!_isSessionSaved) {
       final sessionService = Provider.of<SessionService>(context, listen: false);
       
-      // Firestoreに保存（正しいメソッドを使用）
-      final result = await sessionService.saveSession(
+      // セッション時間の計算
+      final duration = _currentMode == TimerMode.countdown
+          ? _totalSeconds - _remainingSeconds // カウントダウンモードでは設定時間からの減少分
+          : _totalSeconds + _extraSeconds; // ストップウォッチモードでは設定時間＋追加時間
+      
+      // セッションデータ作成
+      final sessionData = SessionModel(
+        id: '', // IDはサービス側で生成
+        taskId: widget.task.id,
+        taskName: widget.task.name,
+        scheduledTime: widget.task.scheduledTime,
+        actualStartTime: _startTime,
+        endTime: _endTime,
+        plannedDuration: widget.task.duration,
+        actualDuration: duration,
+        touchCount: _phoneInteractionCount,
+        onTimeStart: true, // この値は後でサービス側で計算される
+        concentrationLevel: _concentrationLevel,
+        memo: _memoController.text, // メモの内容を保存
+        createdAt: DateTime.now()
+      );
+      
+      // Firestoreに保存
+      sessionService.saveSession(
         task: widget.task,
         startTime: _startTime,
         endTime: _endTime,
-        concentrationLevel: _concentrationLevel, // ユーザーが選択した集中度
+        concentrationLevel: _concentrationLevel,
         memo: _memoController.text,
-      );
-      
-      if (result != null) {
-        _isSessionSaved = true;
+      ).then((_) {
         print('セッションデータを保存しました');
-      } else {
-        print('セッションデータの保存に失敗しました');
-      }
-      
-    } catch (e) {
-      print('セッションデータの保存に失敗: $e');
+        setState(() {
+          _isSessionSaved = true;
+        });
+      }).catchError((error) {
+        print('セッションデータの保存に失敗しました: $error');
+      });
     }
   }
   
@@ -301,165 +318,272 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
           _showCelebration = true;
         });
         
+        // 祝福アニメーションを開始
+        _celebrationController.reset();
+        _celebrationController.forward();
+        
+        // ラットアニメーションを開始（少し遅れて）
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          _ratAnimationController.reset();
+          _ratAnimationController.forward();
+        });
       });
-    });
+    }
   }
-}
+  
+  // 時間のフォーマット（MM:SS形式）
+  String _formatTime(int seconds) {
+    final minutes = (seconds / 60).floor();
+    final remainingSeconds = seconds % 60;
+    return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
+  }
+  
+  // ストップウォッチ時のフォーマット（設定時間に追加された時間を表示）
+  String _formatStopwatchTime(int seconds) {
+    if (seconds <= _totalSeconds) {
+      // 設定時間以内の場合は通常のフォーマット
+      return _formatTime(seconds);
+    } else {
+      // 設定時間を超えた場合は、超過分を「+MM:SS」形式で表示
+      final extraTime = seconds - _totalSeconds;
+      final baseTime = _formatTime(_totalSeconds); // 設定時間部分
+      final extraTimeFormatted = _formatTime(extraTime); // 追加時間部分
+      
+      return '$baseTime (+$extraTimeFormatted)';
+    }
+  }
+  
+  // 経過時間のフォーマット（X分Y秒形式）
+  String _formatDuration(int seconds) {
+    final minutes = (seconds / 60).floor();
+    final remainingSeconds = seconds % 60;
+    return '${minutes}分${remainingSeconds}秒';
+  }
 
-// ...
-
-// 祝福アニメーション
-if (_showCelebration)
-  Positioned.fill(
-    child: GestureDetector(
-      onTap: () {
-        // タップしても何もしない（下のレイヤーへの伝播を防ぐ）
-      },
-      child: Stack(
-        children: [
-          // 背景全体を覆う暗い色
-          Container(
-            color: Colors.black.withOpacity(0.7),
-          ),
-          // 紙吹雪のあるお祝い背景
-          Positioned.fill(
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.black,
-                image: DecorationImage(
-                  image: AssetImage('assets/images/kimi.gif'),
-                  fit: BoxFit.cover,
-                ),
-              ),
-            ),
-          ),
-          // 下からスライドインするネズミのキャラクター（アニメーション表示）
-          AnimatedBuilder(
-            animation: _completionAnimationController,
-            builder: (context, child) {
-              return Positioned(
-                bottom: MediaQuery.of(context).size.height * _slideAnimation.value,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: Image.asset(
-                    'assets/images/junp-rat2.png',
-                    width: 300, // 画像サイズを2倍に
-                    height: 300,
+  @override
+  Widget build(BuildContext context) {
+    // 背景色とテキスト色を設定（モードによって変更）
+    final backgroundColor = _currentMode == TimerMode.countdown
+        ? Colors.blueGrey[900]
+        : TaskColors.getColor(widget.task.colorKey).withOpacity(0.9);
+    
+    final textColor = _currentMode == TimerMode.countdown
+        ? Colors.white
+        : Colors.black87;
+    
+    // セッション画面（ストップウォッチモード）での追加時間表示
+    final String additionalTimeText = _currentMode == TimerMode.stopwatch
+        ? '+${_formatTime(_extraSeconds)}'
+        : '';
+    
+    return Scaffold(
+      body: GestureDetector(
+        // スマホを触った回数をカウントするためのGestureDetector
+        onTap: () {
+          // ストップウォッチモードで実行中、かつ停止操作中でない場合のみカウント
+          if (_currentMode == TimerMode.stopwatch && _isRunning && !_isStoppingStopwatch) {
+            setState(() {
+              _phoneInteractionCount++;
+              print('スマホタッチ: $_phoneInteractionCount回');
+            });
+          }
+        },
+        child: Stack(
+          children: [
+            // 背景
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 500),
+              color: backgroundColor,
+              width: double.infinity,
+              height: double.infinity,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  // タスク情報表示
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                    child: Text(
+                      widget.task.name,
+                      style: TextStyle(
+                        fontSize: 36,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
                   ),
-                ),
-              );
-            },
-          ),
-          // 下部に表示する達成情報ウィジェット
-          Positioned(
-            bottom: 40,
-            left: 0,
-            right: 0,
-            child: SlideTransition(
-              position: _ratSlideAnimation,
-              child: Container(
-                width: 320,
-                margin: const EdgeInsets.symmetric(horizontal: 30),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // 画像はすでに上部に表示されているため、テキストのみを表示
-                    const SizedBox(height: 10),
-                    Column(
-                      children: [
-                        // 優先タスクの場合は特別なテキストを表示
-                        if (widget.task.isPriority)
-                          const Text(
-                            '優先タスク達成!!',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.red,
-                            ),
-                          ),
-                        Text(
-                          '${widget.task.name} 達成!!',
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ],
+                  const SizedBox(height: 50),
+                  
+                  // タイマー表示
+                  Text(
+                    _currentMode == TimerMode.countdown
+                        ? _formatTime(_remainingSeconds)
+                        : _formatStopwatchTime(_totalSeconds + _extraSeconds),
+                    style: TextStyle(
+                      fontSize: 80,
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
                     ),
-                    const SizedBox(height: 10),
+                  ),
+                  
+                  // ストップウォッチモードでの追加時間表示
+                  if (_currentMode == TimerMode.stopwatch && _extraSeconds > 0)
                     Text(
-                      '続けた時間: ${_formatTime(widget.task.duration * 60 - _remainingSeconds)}',
-                      style: const TextStyle(fontSize: 18),
+                      additionalTimeText,
+                      style: TextStyle(
+                        fontSize: 24,
+                        color: textColor.withOpacity(0.8),
+                      ),
                     ),
-                    const SizedBox(height: 5),
+                  
+                  const SizedBox(height: 40),
+                  
+                  // カウントダウンの進捗バー
+                  if (_currentMode == TimerMode.countdown)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 32.0),
+                      child: LinearProgressIndicator(
+                        value: _remainingSeconds / _totalSeconds,
+                        backgroundColor: Colors.grey[300],
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          TaskColors.getColor(widget.task.colorKey),
+                        ),
+                        minHeight: 10,
+                      ),
+                    ),
+                  
+                  const SizedBox(height: 50),
+                  
+                  // コントロールボタン
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      // リセットボタン
+                      if (!_isRunning || _currentMode == TimerMode.stopwatch)
+                        ElevatedButton.icon(
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('リセット'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.grey[700],
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            textStyle: const TextStyle(fontSize: 16),
+                          ),
+                          onPressed: _resetTimer,
+                        ),
+                      
+                      const SizedBox(width: 20),
+                      
+                      // 開始/停止ボタン
+                      ElevatedButton.icon(
+                        icon: Icon(_isRunning ? Icons.pause : Icons.play_arrow),
+                        label: Text(_isRunning ? '一時停止' : '開始'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _isRunning ? Colors.orange : Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                          textStyle: const TextStyle(fontSize: 18),
+                        ),
+                        onPressed: _isRunning ? _pauseTimer : _startTimer,
+                      ),
+                    ],
+                  ),
+                  
+                  const SizedBox(height: 40),
+                  
+                  // スマホを触った回数表示（ストップウォッチモードのみ）
+                  if (_currentMode == TimerMode.stopwatch)
                     Text(
                       'スマホを触った回数: $_phoneInteractionCount回',
-                      style: const TextStyle(fontSize: 18),
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: textColor,
+                      ),
                     ),
-                    const SizedBox(height: 15),
-                    // 集中度評価
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 16),
-                          child: Text(
-                            '集中度の自己評価',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
+                ],
+              ),
+            ),
+            
+            // 祝福アニメーション
+            if (_showCelebration)
+              Positioned.fill(
+                child: GestureDetector(
+                  onTap: () {
+                    // タップしても何もしない（下のレイヤーへの伝播を防ぐ）
+                  },
+                  child: Stack(
+                    children: [
+                      // 背景全体を覆う暗い色
+                      Container(
+                        color: Colors.black.withOpacity(0.7),
+                      ),
+                      // 赤っぽい背景色を使用
+                      Positioned.fill(
+                        child: Container(
+                          color: Colors.red.shade900,
                         ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          width: MediaQuery.of(context).size.width * 0.9,
-                          child: Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            alignment: WrapAlignment.center,
-                            children: [
-                              ElevatedButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _concentrationLevel = ConcentrationLevel.high;
-                                  });
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _concentrationLevel == ConcentrationLevel.high 
-                                      ? Colors.green 
-                                      : Colors.grey[300],
-                                  foregroundColor: _concentrationLevel == ConcentrationLevel.high 
-                                      ? Colors.white 
-                                      : Colors.black,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      ),
+                      // ネズミのキャラクターを中央に配置
+                      Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            // ネズミのキャラクター
+                            Image.asset(
+                              'assets/images/rat2.png',
+                              width: 150,
+                              height: 150,
+                            ),
+                          ],
+                        ),
+                      ),
+                      // 下部に表示する達成情報ウィジェット
+                      Positioned(
+                        bottom: 40,
+                        left: 0,
+                        right: 0,
+                        child: SlideTransition(
+                          position: _ratSlideAnimation,
+                          child: Container(
+                            width: 320,
+                            margin: const EdgeInsets.symmetric(horizontal: 30),
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // 画像とテキスト
+                                Image.asset(
+                                  'assets/images/jerry.png', // ネズミのキャラクター画像
+                                  width: 120,
+                                  height: 120,
                                 ),
-                                child: const Text('とても集中できた'),
-                              ),
-                              const SizedBox(width: 8),
-                              
-                              // 集中できた
-                              ElevatedButton(
-                                onPressed: () {
-                                  setState(() {
-                                    _concentrationLevel = ConcentrationLevel.medium;
-                                  });
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _concentrationLevel == ConcentrationLevel.medium 
-                                      ? Colors.blue 
-                                      : Colors.grey[300],
-                                  foregroundColor: _concentrationLevel == ConcentrationLevel.medium 
-                                      ? Colors.white 
-                                      : Colors.black,
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                const SizedBox(height: 10),
+                                Column(
+                                  children: [
+                                    // 優先タスクの場合は特別なテキストを表示
+                                    if (widget.task.isPriority)
+                                      const Text(
+                                        '優先タスク達成!!',
+                                        style: TextStyle(
+                                          fontSize: 24,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.red,
+                                        ),
+                                      ),
+                                    Text(
+                                      '${widget.task.name} 達成!!',
+                                      style: const TextStyle(
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                  ],
+                                ),
                                 const SizedBox(height: 10),
                                 Text(
                                   '続けた時間: ${_formatTime(widget.task.duration * 60 - _remainingSeconds)}',
@@ -471,91 +595,6 @@ if (_showCelebration)
                                   style: const TextStyle(fontSize: 18),
                                 ),
                                 const SizedBox(height: 15),
-                                // 集中度評価
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Padding(
-                                      padding: EdgeInsets.symmetric(horizontal: 16),
-                                      child: Text(
-                                        '集中度の自己評価',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(height: 10),
-                                    SizedBox(
-                                      width: MediaQuery.of(context).size.width * 0.9,
-                                      child: Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        alignment: WrapAlignment.center,
-                                        children: [
-                                        ElevatedButton(
-                                          onPressed: () {
-                                            setState(() {
-                                              _concentrationLevel = ConcentrationLevel.high;
-                                            });
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: _concentrationLevel == ConcentrationLevel.high 
-                                                ? Colors.green 
-                                                : Colors.grey[300],
-                                            foregroundColor: _concentrationLevel == ConcentrationLevel.high 
-                                                ? Colors.white 
-                                                : Colors.black,
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                          ),
-                                          child: const Text('とても集中できた'),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        
-                                        // 集中できた
-                                        ElevatedButton(
-                                          onPressed: () {
-                                            setState(() {
-                                              _concentrationLevel = ConcentrationLevel.medium;
-                                            });
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: _concentrationLevel == ConcentrationLevel.medium 
-                                                ? Colors.blue 
-                                                : Colors.grey[300],
-                                            foregroundColor: _concentrationLevel == ConcentrationLevel.medium 
-                                                ? Colors.white 
-                                                : Colors.black,
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                          ),
-                                          child: const Text('集中できた'),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        
-                                        // 集中できなかった
-                                        ElevatedButton(
-                                          onPressed: () {
-                                            setState(() {
-                                              _concentrationLevel = ConcentrationLevel.low;
-                                            });
-                                          },
-                                          style: ElevatedButton.styleFrom(
-                                            backgroundColor: _concentrationLevel == ConcentrationLevel.low 
-                                                ? Colors.red 
-                                                : Colors.grey[300],
-                                            foregroundColor: _concentrationLevel == ConcentrationLevel.low 
-                                                ? Colors.white 
-                                                : Colors.black,
-                                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                          ),
-                                          child: const Text('集中できなかった'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  ],
-                                ),
-                                const SizedBox(height: 20),
                                 // メモ用テキストフィールドを追加
                                 Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 16),
