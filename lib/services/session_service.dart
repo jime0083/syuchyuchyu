@@ -35,6 +35,33 @@ class SessionService extends ChangeNotifier {
     }
   }
   
+  // 全てのセッションを取得して返す
+  Future<List<SessionModel>> getAllSessions() async {
+    try {
+      if (_auth.currentUser == null) return [];
+      
+      // まず保存済みのセッションを更新
+      await getSessions();
+      
+      // キャッシュされていない可能性があるため直接取得も試みる
+      QuerySnapshot snapshot = await _firestore
+          .collection('users')
+          .doc(_auth.currentUser!.uid)
+          .collection('sessions')
+          .orderBy('createdAt', descending: true)
+          .get(const GetOptions(source: Source.server));
+      
+      print('getAllSessions: Found ${snapshot.docs.length} total sessions');
+      
+      // 結果をモデルに変換
+      return snapshot.docs.map((doc) => SessionModel.fromFirestore(doc)).toList();
+    } catch (e) {
+      print('Error getting all sessions: $e');
+      // 既にキャッシュされているセッションを返す
+      return _sessions;
+    }
+  }
+  
   // Get sessions for a specific date
   Future<List<SessionModel>> getSessionsByDate(DateTime date) async {
     try {
@@ -79,6 +106,86 @@ class SessionService extends ChangeNotifier {
       if (kDebugMode) {
         print('Error getting sessions by task: $e');
       }
+      return [];
+    }
+  }
+  
+  // タスクIDでセッションを直接Firestoreから取得し、キャッシュをリフレッシュする
+  Future<List<SessionModel>> refreshAndGetSessionsByTask(String taskId) async {
+    try {
+      if (_auth.currentUser == null) {
+        print('Error: User not authenticated');
+        return [];
+      }
+      
+      print('Refreshing sessions for task ID: $taskId, UID: ${_auth.currentUser!.uid}');
+      
+      // キャッシュを使わずに直接Firestoreからデータを取得
+      final userDocRef = _firestore.collection('users').doc(_auth.currentUser!.uid);
+      final sessionsCollRef = userDocRef.collection('sessions');
+      
+      // まずユーザードキュメントが存在するか確認
+      DocumentSnapshot userDoc = await userDocRef.get();
+      if (!userDoc.exists) {
+        print('User document does not exist for UID: ${_auth.currentUser!.uid}');
+      }
+      
+      // セッションコレクションに何件データがあるか確認
+      QuerySnapshot allSessionsCount = await sessionsCollRef.limit(1).get();
+      print('Total sessions collection exists: ${allSessionsCount.docs.isNotEmpty}');
+      
+      // タスクIDでフィルタリングしたクエリを実行
+      QuerySnapshot snapshot = await sessionsCollRef
+          .where('taskId', isEqualTo: taskId)
+          .get(const GetOptions(source: Source.server)); // サーバーから強制的に取得
+      
+      // デバッグ情報
+      print('refreshAndGetSessionsByTask: ${snapshot.docs.length} sessions found for task $taskId');
+      
+      if (snapshot.docs.isEmpty) {
+        // 万が一taskIdの保存形式が異なる場合に備えて、違う方法でも検索
+        print('No sessions found with exact taskId match. Trying to query all sessions...');
+        
+        // すべてのセッションを取得して手動でフィルタリング
+        QuerySnapshot allSessions = await sessionsCollRef
+            .orderBy('createdAt', descending: true)
+            .get(const GetOptions(source: Source.server));
+            
+        print('Found ${allSessions.docs.length} total sessions. Checking manually for task ID $taskId');
+        
+        // 手動でフィルタリング
+        List<QueryDocumentSnapshot> matchingSessions = [];
+        for (var doc in allSessions.docs) {
+          Map<String, dynamic> data = doc.data() as Map<String, dynamic>;
+          String sessionTaskId = data['taskId'] ?? '';
+          print('Checking session ${doc.id}: taskId = $sessionTaskId');
+          
+          if (sessionTaskId == taskId) {
+            matchingSessions.add(doc);
+          }
+        }
+        
+        print('Manually found ${matchingSessions.length} matching sessions');
+        
+        // 結果をモデルに変換
+        List<SessionModel> sessions = matchingSessions.map((doc) => SessionModel.fromFirestore(doc)).toList();
+        return sessions;
+      }
+      
+      // 標準のケースで結果をモデルに変換
+      List<SessionModel> sessions = snapshot.docs.map((doc) => SessionModel.fromFirestore(doc)).toList();
+      
+      // 詳細なデバッグ情報
+      for (var session in sessions) {
+        print('Session ID: ${session.id}, TaskID: ${session.taskId}, Date: ${session.actualStartTime}');
+      }
+      
+      // 全体のセッションリストも更新
+      await getSessions();
+      
+      return sessions;
+    } catch (e) {
+      print('Error refreshing sessions by task: $e');
       return [];
     }
   }

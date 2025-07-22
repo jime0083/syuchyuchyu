@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
 import 'package:micro_habit_runner/models/session_model.dart';
 import 'package:micro_habit_runner/models/task_model.dart';
+import 'package:micro_habit_runner/screens/task_stats_screen.dart';
+import 'package:micro_habit_runner/screens/concentration_trends_screen.dart';
 import 'package:micro_habit_runner/services/session_service.dart';
 import 'package:micro_habit_runner/services/task_service.dart';
 import 'package:micro_habit_runner/utils/task_colors.dart';
@@ -545,10 +547,8 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
               padding: const EdgeInsets.symmetric(vertical: 12),
             ),
             onPressed: () {
-              // TODO: タスク別データ画面に遷移
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('タスク別データは近日公開予定です')),
-              );
+              // タスク選択ダイアログを表示
+              _showTaskSelectionDialog();
             },
           ),
         ),
@@ -563,14 +563,78 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
               padding: const EdgeInsets.symmetric(vertical: 12),
             ),
             onPressed: () {
-              // TODO: 集中の傾向画面に遷移
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('集中の傾向は近日公開予定です')),
+              // 集中の傾向画面に遷移
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => const ConcentrationTrendsScreen(),
+                ),
               );
             },
           ),
         ),
       ],
+    );
+  }
+  
+  // タスク選択ダイアログを表示
+  void _showTaskSelectionDialog() {
+    // タスク情報を取得
+    final taskService = Provider.of<TaskService>(context, listen: false);
+    final tasks = taskService.tasks;
+    
+    // セッション履歴があるタスクのIDを収集
+    final taskIds = _sessions.map((s) => s.taskId).toSet().toList();
+    
+    // 現在アクティブなタスクで、かつセッション履歴があるタスクのみをフィルタリング
+    final filteredTasks = tasks.where((task) => taskIds.contains(task.id)).toList();
+    
+    if (filteredTasks.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('表示可能なタスクがありません')),
+      );
+      return;
+    }
+    
+    // ダイアログを表示
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('タスクを選択'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: filteredTasks.length,
+            itemBuilder: (context, index) {
+              final task = filteredTasks[index];
+              return ListTile(
+                leading: Icon(
+                  Icons.circle,
+                  color: TaskColors.getColor(task.colorKey),
+                ),
+                title: Text(task.name),
+                trailing: task.isPriority ? const Icon(Icons.star, color: Colors.amber) : null,
+                onTap: () {
+                  Navigator.of(context).pop(); // ダイアログを閉じる
+                  
+                  // タスク統計画面に遷移
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => TaskStatsScreen(taskId: task.id),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('キャンセル'),
+          ),
+        ],
+      ),
     );
   }
 }
