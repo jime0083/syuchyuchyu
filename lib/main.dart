@@ -19,6 +19,19 @@ import 'package:micro_habit_runner/screens/timer_screen.dart';
 import 'package:micro_habit_runner/models/task_model.dart';
 
 Future<void> main() async {
+  // エラー表示を完全に抑制
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    // エラーをコンソールに記録するがUI上には何も表示しない
+    debugPrint('エラーを捕捉しました: ${details.exception}');
+    return const SizedBox.shrink(); // 完全に透明なウィジェット
+  };
+  
+  // Flutterフレームワークレベルのエラーもハンドリング
+  FlutterError.onError = (FlutterErrorDetails details) {
+    FlutterError.dumpErrorToConsole(details, forceReport: false);
+    // UIへのエラー表示を抑制
+  };
+  
   // エラーハンドリングを追加
   await runZonedGuarded<Future<void>>(() async {
     // 1. ウィジェットバインディングの初期化
@@ -86,6 +99,11 @@ class MicroHabitRunnerApp extends StatelessWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,
+      debugShowMaterialGrid: false,
+      showPerformanceOverlay: false,
+      checkerboardRasterCacheImages: false,
+      checkerboardOffscreenLayers: false,
+      showSemanticsDebugger: false,
       localizationsDelegates: const [
         AppLocalizations.delegate,
         GlobalMaterialLocalizations.delegate,

@@ -428,12 +428,12 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
               ),
             ),
             const SizedBox(height: 16),
-            // カレンダーグリッド
+            // カレンダーグリッド（10列 x 3行に変更）
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 6,
+                crossAxisCount: 10,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
                 childAspectRatio: 1,
