@@ -112,107 +112,102 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
     _timer?.cancel();
     _animationController.dispose();
     _celebrationController.dispose();
-    _ratAnimationController.dispose(); // ラットアニメーションコントローラーも破棄
-    _memoController.dispose(); // メモ用テキストコントローラーを破棄
+    _ratAnimationController.dispose();
+    _memoController.dispose();
     super.dispose();
   }
   
-  // アプリがフォアグラウンド/バックグラウンドに切り替わる際の処理
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // 画面にタッチしたとみなすのはresumedの時のみ（アプリがフォアグラウンドに戻った時）
-    if (state == AppLifecycleState.resumed) {
-      if (_currentMode == TimerMode.stopwatch && _isRunning && !_isStoppingStopwatch) {
-        setState(() {
-          _phoneInteractionCount++;
-          print('スマホタッチ: $_phoneInteractionCount回');
-        });
+    // アプリがバックグラウンドになった場合
+    if (state == AppLifecycleState.paused) {
+      // タイマー実行中の場合は一時停止する
+      if (_isRunning) {
+        _pauseTimer();
       }
     }
   }
   
-  // タイマー開始
   void _startTimer() {
-    if (_timer != null) {
-      _timer!.cancel(); // 既存のタイマーをキャンセル
-    }
-    
     setState(() {
+      if (_remainingSeconds <= 0 && _currentMode == TimerMode.countdown) {
+        // カウントダウンが終了している場合はリセット
+        _resetTimer();
+      }
+      
       _isRunning = true;
       
-      // 開始時間を記録（初めて開始する場合のみ）
-      if (_currentMode == TimerMode.countdown && _remainingSeconds == _totalSeconds ||
-          _currentMode == TimerMode.stopwatch && _extraSeconds == 0) {
+      // 開始時間を記録（停止中に再開した場合は更新）
+      if (_currentMode == TimerMode.stopwatch || _remainingSeconds == _totalSeconds) {
         _startTime = DateTime.now();
       }
     });
     
-    _animationController.forward();
-    
-    // 1秒ごとにタイマーを更新
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       setState(() {
         if (_currentMode == TimerMode.countdown) {
+          // カウントダウンモード
           if (_remainingSeconds > 0) {
             _remainingSeconds--;
-            _animationController.value = 1 - (_remainingSeconds / _totalSeconds);
+            _animationController.value = 1.0 - (_remainingSeconds / _totalSeconds);
           } else {
-            // カウントダウン終了時
-            // タイマーを止めずにストップウォッチモードに自動的に切り替える
-            _switchToStopwatchMode();
-            _startTimer(); // ストップウォッチをすぐに開始
+            _timer?.cancel();
+            _isRunning = false;
+            
+            // 終了時間を記録
+            _endTime = DateTime.now();
+            
+            // 達成お祝いアニメーションを表示
+            _showCelebrationAnimation();
           }
         } else {
-          // ストップウォッチモードの場合は時間を追加
+          // ストップウォッチモード
           _extraSeconds++;
         }
       });
     });
   }
   
-  // タイマー一時停止
   void _pauseTimer() {
-    _timer?.cancel();
-    _animationController.stop();
-    
     setState(() {
       _isRunning = false;
+      _timer?.cancel();
       
-      // ストップウォッチを停止する場合は、操作のためのタッチをカウントしないようフラグを立てる
+      // ストップウォッチモードの場合、一時的にフラグをセット
+      // （スマホを触った回数のカウントから除外するため）
       if (_currentMode == TimerMode.stopwatch) {
         _isStoppingStopwatch = true;
-        Future.delayed(const Duration(milliseconds: 1000), () {
-          if (mounted) {
-            setState(() {
-              _isStoppingStopwatch = false;
-            });
-          }
-        });
         
-        // ストップウォッチ停止時に終了時間を記録してタスク完了画面を表示
-        _endTime = DateTime.now();
-        _showCelebrationAnimation();
+        // 少し遅延してフラグをリセット（ボタンタップのカウントを避けるため）
+        Future.delayed(const Duration(milliseconds: 500), () {
+          setState(() {
+            _isStoppingStopwatch = false;
+          });
+        });
       }
+      
+      // タイマー停止時間を記録
+      _endTime = DateTime.now();
     });
   }
   
-  // タイマーリセット
   void _resetTimer() {
-    _timer?.cancel();
-    _animationController.reset();
-    
     setState(() {
       _isRunning = false;
-      if (_currentMode == TimerMode.countdown) {
-        _remainingSeconds = _totalSeconds;
-      } else {
-        _extraSeconds = 0;
-      }
+      _timer?.cancel();
+      _remainingSeconds = _totalSeconds;
+      _extraSeconds = 0;
+      _phoneInteractionCount = 0;
+      _animationController.reset();
     });
   }
   
-  // セッションデータをFirestoreに保存
   void _saveSessionData() {
+    // 既に保存済みの場合は処理しない
+    if (_isSessionSaved) {
+      return;
+    }
+    
     // 集中レベルが選択されていない場合は保存しない
     if (_concentrationLevel == null) {
       setState(() {
@@ -221,164 +216,134 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
       return;
     }
     
-    // セッションがまだ保存されていない場合のみ実行
-    if (!_isSessionSaved) {
-      final sessionService = Provider.of<SessionService>(context, listen: false);
-      
-      // セッション時間の計算
-      final duration = _currentMode == TimerMode.countdown
-          ? _totalSeconds - _remainingSeconds // カウントダウンモードでは設定時間からの減少分
-          : _totalSeconds + _extraSeconds; // ストップウォッチモードでは設定時間＋追加時間
-      
-      // セッションデータ作成
-      final sessionData = SessionModel(
-        id: '', // IDはサービス側で生成
-        taskId: widget.task.id,
-        taskName: widget.task.name,
-        scheduledTime: widget.task.scheduledTime,
-        actualStartTime: _startTime,
-        endTime: _endTime,
-        plannedDuration: widget.task.duration,
-        actualDuration: duration,
-        touchCount: _phoneInteractionCount,
-        onTimeStart: true, // この値は後でサービス側で計算される
-        concentrationLevel: _concentrationLevel!,
-        memo: _memoController.text, // メモの内容を保存
-        createdAt: DateTime.now()
-      );
-      
-      // Firestoreに保存
-      sessionService.saveSession(
-        task: widget.task,
-        startTime: _startTime,
-        endTime: _endTime,
-        concentrationLevel: _concentrationLevel!,
-        memo: _memoController.text,
-      ).then((_) {
-        print('セッションデータを保存しました');
-        setState(() {
-          _isSessionSaved = true;
-        });
-      }).catchError((error) {
-        print('セッションデータの保存に失敗しました: $error');
+    // セッションデータの保存
+    final sessionService = Provider.of<SessionService>(context, listen: false);
+    sessionService.saveSession(
+      task: widget.task,
+      startTime: _startTime,
+      endTime: _endTime,
+      concentrationLevel: _concentrationLevel!,
+      memo: _memoController.text,
+    ).then((_) {
+      print('セッションデータを保存しました');
+      setState(() {
+        _isSessionSaved = true;
+      });
+    }).catchError((error) {
+      print('セッションデータの保存に失敗しました: $error');
+    });
+  }
+  
+  void _switchToStopwatchMode() {
+    if (_currentMode == TimerMode.countdown && !_isRunning) {
+      setState(() {
+        // ストップウォッチモードに変更
+        _currentMode = TimerMode.stopwatch;
+        
+        // タイマーをリセット
+        _timer?.cancel();
+        _remainingSeconds = 0;
+        _extraSeconds = 0;
+        _phoneInteractionCount = 0;
+        
+        // アニメーションをリセット
+        _animationController.reset();
       });
     }
   }
   
-  // ストップウォッチモードに切り替え
-  void _switchToStopwatchMode() {
-    _timer?.cancel();
-    
-    setState(() {
-      _currentMode = TimerMode.stopwatch;
-      _isRunning = false;
-      _extraSeconds = 0;
-      
-      // カウントダウン終了後にストップウォッチ開始のオプションを出す場合は
-      // 設定時間が経過したことを記録
-      _remainingSeconds = 0;
-      
-      // アニメーションコントローラをリセット
-      _animationController.reset();
-    });
-  }
-  
-  // 祝福アニメーションを表示
   void _showCelebrationAnimation() {
     setState(() {
       _showCelebration = true;
-      
-      // タスク完了時は時間を記録
-      _endTime = DateTime.now();
     });
     
-    // ラットがスライドインするアニメーション開始
-    _ratAnimationController.forward().then((_) {
-      // 祝福アニメーションを開始
-      _celebrationController.repeat();
-    });
+    // ラットアニメーションを開始
+    _ratAnimationController.forward();
   }
   
-  // フォーマットされた時間を表示（00:00形式）
   String _formatTime(int seconds) {
-    final minutes = (seconds / 60).floor();
-    final remainingSeconds = seconds % 60;
+    final int minutes = seconds ~/ 60;
+    final int remainingSeconds = seconds % 60;
     return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
   }
   
-  // フォーマットされた時間を表示（ストップウォッチモード）
   String _formatStopwatchTime(int seconds) {
-    // タイマーモードと逆の計算（開始時間からの経過時間）
-    int elapsedSeconds = _currentMode == TimerMode.stopwatch
-        ? _extraSeconds // ストップウォッチモードの場合は追加時間
-        : _totalSeconds - _remainingSeconds; // カウントダウンモードでは残り時間を引く
-        
-    int hours = elapsedSeconds ~/ 3600;
-    int minutes = (elapsedSeconds % 3600) ~/ 60;
-    int secs = elapsedSeconds % 60;
-    
-    String hoursStr = hours > 0 ? '${hours.toString()}時間' : '';
-    return '$hoursStr${minutes.toString().padLeft(2, '0')}分${secs.toString().padLeft(2, '0')}秒';
-  }
-  
-  // 秒を日本語形式の時間に変換（例：25分, 1時間30分）
-  String _formatDuration(int seconds) {
-    int hours = seconds ~/ 3600;
-    int minutes = (seconds % 3600) ~/ 60;
-    
-    if (hours > 0) {
-      return '$hours時間$minutes分';
+    // 分:秒の表示形式
+    if (seconds < 3600) {
+      // 1時間未満の場合
+      final int minutes = seconds ~/ 60;
+      final int remainingSeconds = seconds % 60;
+      return '${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
     } else {
-      return '$minutes分';
+      // 1時間以上の場合
+      final int hours = seconds ~/ 3600;
+      final int minutes = (seconds % 3600) ~/ 60;
+      final int remainingSeconds = seconds % 60;
+      return '${hours.toString()}:${minutes.toString().padLeft(2, '0')}:${remainingSeconds.toString().padLeft(2, '0')}';
     }
   }
-
-  // 集中度選択オプションを構築するメソッド
+  
+  String _formatDuration(int seconds) {
+    final int hours = seconds ~/ 3600;
+    final int minutes = (seconds % 3600) ~/ 60;
+    final int remainingSeconds = seconds % 60;
+    
+    if (hours > 0) {
+      return '$hours時間${minutes}分${remainingSeconds}秒';
+    } else {
+      return '$minutes分${remainingSeconds}秒';
+    }
+  }
+  
   Widget _buildConcentrationOption(ConcentrationLevel level, String label) {
-    return InkWell(
+    final bool isSelected = _concentrationLevel == level;
+    
+    // 色を設定（選択状態によって変更）
+    final Color backgroundColor = isSelected ? _getConcentrationColor(level) : Colors.grey.shade200;
+    final Color textColor = isSelected ? Colors.white : Colors.black87;
+    
+    return GestureDetector(
       onTap: () {
         setState(() {
           _concentrationLevel = level;
-          _showConcentrationError = false; // エラー表示をクリア
+          _showConcentrationError = false;
         });
       },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8.0),
-        child: Row(
-          children: [
-            Radio<ConcentrationLevel>(
-              value: level,
-              groupValue: _concentrationLevel,
-              onChanged: (ConcentrationLevel? value) {
-                setState(() {
-                  _concentrationLevel = value;
-                  _showConcentrationError = false; // エラー表示をクリア
-                });
-              },
-              activeColor: _getConcentrationColor(level),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? Colors.transparent : Colors.grey.shade300,
+            width: 1,
+          ),
+        ),
+        child: Center(
+          child: Text(
+            label,
+            style: TextStyle(
+              color: textColor,
+              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
             ),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 16),
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
-
-  // 集中レベルに応じた色を返すヘルパーメソッド
+  
   Color _getConcentrationColor(ConcentrationLevel level) {
     switch (level) {
       case ConcentrationLevel.high:
         return Colors.green;
       case ConcentrationLevel.medium:
-        return Colors.blue;
+        return Colors.amber.shade700;
       case ConcentrationLevel.low:
-        return Colors.red;
+        return Colors.red.shade400;
     }
   }
-
+  
   @override
   Widget build(BuildContext context) {
     // 背景色とテキスト色を設定（モードによって変更）
@@ -526,164 +491,191 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
                 Positioned.fill(
                   child: Container(
                     color: Colors.black.withOpacity(0.8),
-                    child: Center(
-                      child: SingleChildScrollView(
-                        child: Container(
-                          width: MediaQuery.of(context).size.width * 0.85,
-                          padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 10,
-                                offset: const Offset(0, 5),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
+                    child: Stack(
+                      children: [
+                        // 背景画像（kimi.gif）を全画面に確実に表示
+                        Positioned.fill(
+                          child: Stack(
                             children: [
-                              // ラットのアニメーション
-                              SlideTransition(
-                                position: _ratSlideAnimation,
-                                child: Container(
-                                  height: 120,
-                                  alignment: Alignment.center,
-                                  child: const Icon(
-                                    Icons.celebration,
-                                    size: 80,
-                                    color: Colors.amber,
-                                  ),
+                              // 背景画像（kimi.gif）を全画面覆うように表示
+                              Positioned.fill(
+                                child: Image(
+                                  image: const AssetImage('assets/images/kimi.gif'),
+                                  fit: BoxFit.cover, // coverで確実に全画面を覆う
                                 ),
                               ),
-                              const SizedBox(height: 20),
-                              
-                              // タスク達成バッジ（優先タスク用）
-                              if (widget.task.isPriority)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: Colors.amber,
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: const Text('優先タスク達成!', style: TextStyle(fontWeight: FontWeight.bold)),
-                                ),
-                              const SizedBox(height: 16),
-                              
-                              // おめでとうメッセージ
-                              Text(
-                                '${widget.task.name} 達成!!',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.blueGrey,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 24),
-                              
-                              // タスク結果の詳細
-                              Text(
-                                '続けた時間: ${_formatTime(widget.task.duration * 60 - _remainingSeconds)}',
-                                style: const TextStyle(fontSize: 18),
-                              ),
-                              const SizedBox(height: 15),
-                              
-                              // スマホタッチ回数表示
-                              Text(
-                                'スマホを触った回数: $_phoneInteractionCount回',
-                                style: const TextStyle(fontSize: 18),
-                              ),
-                              const SizedBox(height: 15),
-                              // 集中度選択UI
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                                decoration: BoxDecoration(
-                                  border: Border.all(
-                                    color: _showConcentrationError ? Colors.red : Colors.grey.shade300,
-                                    width: _showConcentrationError ? 2 : 1,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      '集中度を評価してください',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: _showConcentrationError ? Colors.red : Colors.black87,
-                                      ),
+                              // ラット画像を上部に配置（Alignment使用）
+                              Align(
+                                alignment: Alignment.topCenter, // 上部中央に配置
+                                child: Padding(
+                                  padding: EdgeInsets.only(top: MediaQuery.of(context).size.height * 0.05), // 上部から5%の位置（15%から5%に変更）
+                                  child: SlideTransition(
+                                    position: _ratSlideAnimation,
+                                    child: Image.asset(
+                                      'assets/images/junp-rat2.png',
+                                      height: 400, // 200から400に変更（2倍）
+                                      fit: BoxFit.contain,
                                     ),
-                                    const SizedBox(height: 8),
-                                    _buildConcentrationOption(ConcentrationLevel.high, 'かなり集中できた'),
-                                    _buildConcentrationOption(ConcentrationLevel.medium, '集中できた'),
-                                    _buildConcentrationOption(ConcentrationLevel.low, '集中できなかった'),
-                                    if (_showConcentrationError)
-                                      const Padding(
-                                        padding: EdgeInsets.only(top: 8),
-                                        child: Text(
-                                          'このタスクでの集中度を選択してください',
-                                          style: TextStyle(color: Colors.red, fontSize: 14),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 15),
-                              // メモ用テキストフィールドを追加
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: TextField(
-                                  controller: _memoController,
-                                  decoration: const InputDecoration(
-                                    hintText: '感想やメモを入力してください',
-                                    border: OutlineInputBorder(),
-                                    contentPadding: EdgeInsets.all(12),
                                   ),
-                                  maxLines: 3,
-                                  textAlign: TextAlign.left,
                                 ),
-                              ),
-                              const SizedBox(height: 20),
-                              
-                              // 閉じるボタン
-                              ElevatedButton.icon(
-                                icon: const Icon(Icons.close),
-                                label: const Text('閉じる'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.amber,
-                                  foregroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                  textStyle: const TextStyle(fontSize: 18),
-                                ),
-                                onPressed: () {
-                                  // 集中度が選択されていない場合はエラーメッセージを表示
-                                  if (_concentrationLevel == null) {
-                                    setState(() {
-                                      _showConcentrationError = true;
-                                    });
-                                    return;
-                                  }
-                                  
-                                  // セッションデータを保存
-                                  _saveSessionData();
-                                  
-                                  // ホーム画面に戻る（全てのルートを削除してホームに移動）
-                                  Navigator.of(context).pushNamedAndRemoveUntil(
-                                    '/', // ホーム画面のルート
-                                    (route) => false, // すべてのルートを削除
-                                  );
-                                },
                               ),
                             ],
                           ),
                         ),
-                      ),
+                        
+                        // ポップアップ本体を画面下部に配置
+                        Positioned(
+                          bottom: MediaQuery.of(context).size.height * 0.05,
+                          left: MediaQuery.of(context).size.width * 0.075,
+                          right: MediaQuery.of(context).size.width * 0.075,
+                          child: Container(
+                            constraints: BoxConstraints(
+                              maxHeight: MediaQuery.of(context).size.height * 0.52, // 0.4 * 1.3 = 0.52
+                            ),
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.2),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 5),
+                                ),
+                              ],
+                            ),
+                            child: SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                // タスク達成バッジ（優先タスク用）
+                                if (widget.task.isPriority)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                    decoration: BoxDecoration(
+                                      color: Colors.amber,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Text('優先タスク達成!', style: TextStyle(fontWeight: FontWeight.bold)),
+                                  ),
+                                const SizedBox(height: 8),
+                                
+                                // おめでとうメッセージ
+                                Text(
+                                  '${widget.task.name} 達成!!',
+                                  style: const TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.blueGrey,
+                                  ),
+                                  textAlign: TextAlign.center,
+                                ),
+                                const SizedBox(height: 12),
+                                
+                                // タスク結果の詳細
+                                Text(
+                                  '続けた時間: ${_formatTime(widget.task.duration * 60 - _remainingSeconds)}',
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                                const SizedBox(height: 6),
+                                
+                                // スマホタッチ回数表示
+                                Text(
+                                  'スマホを触った回数: $_phoneInteractionCount回',
+                                  style: const TextStyle(fontSize: 14),
+                                ),
+                                const SizedBox(height: 6),
+                                
+                                // 集中度選択UI
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    border: Border.all(
+                                      color: _showConcentrationError ? Colors.red : Colors.grey.shade300,
+                                      width: _showConcentrationError ? 2 : 1,
+                                    ),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        '集中度を評価してください',
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          color: _showConcentrationError ? Colors.red : Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      _buildConcentrationOption(ConcentrationLevel.high, 'かなり集中できた'),
+                                      _buildConcentrationOption(ConcentrationLevel.medium, '集中できた'),
+                                      _buildConcentrationOption(ConcentrationLevel.low, '集中できなかった'),
+                                      if (_showConcentrationError)
+                                        const Padding(
+                                          padding: EdgeInsets.only(top: 8),
+                                          child: Text(
+                                            'このタスクでの集中度を選択してください',
+                                            style: TextStyle(color: Colors.red, fontSize: 14),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                
+                                // メモ用テキストフィールドを追加
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                                  child: TextField(
+                                    controller: _memoController,
+                                    decoration: const InputDecoration(
+                                      hintText: '感想やメモを入力してください',
+                                      border: OutlineInputBorder(),
+                                      contentPadding: EdgeInsets.all(12),
+                                    ),
+                                    maxLines: 2,
+                                    textAlign: TextAlign.left,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                
+                                // 閉じるボタン
+                                ElevatedButton.icon(
+                                  icon: const Icon(Icons.close),
+                                  label: const Text('閉じる'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.amber,
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                    textStyle: const TextStyle(fontSize: 18),
+                                  ),
+                                  onPressed: () {
+                                    // 集中度が選択されていない場合はエラーメッセージを表示
+                                    if (_concentrationLevel == null) {
+                                      setState(() {
+                                        _showConcentrationError = true;
+                                      });
+                                      return;
+                                    }
+                                    
+                                    // セッションデータを保存
+                                    _saveSessionData();
+                                    
+                                    // ホーム画面に戻る（全てのルートを削除してホームに移動）
+                                    Navigator.of(context).pushNamedAndRemoveUntil(
+                                      '/', // ホーム画面のルート
+                                      (route) => false, // すべてのルートを削除
+                                    );
+                                  },
+                                ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
