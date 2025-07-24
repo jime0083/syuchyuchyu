@@ -59,6 +59,9 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
   
   // 集中レベル未選択エラーメッセージの表示フラグ
   bool _showConcentrationError = false;
+  
+  // カウントダウンが完了したかどうかのフラグ
+  bool _countdownCompleted = false;
 
   @override
   void initState() {
@@ -151,14 +154,13 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
             _remainingSeconds--;
             _animationController.value = 1.0 - (_remainingSeconds / _totalSeconds);
           } else {
-            _timer?.cancel();
-            _isRunning = false;
+            // カウントダウン終了時は自動的にストップウォッチモードに切り替え
+            _currentMode = TimerMode.stopwatch;
+            _extraSeconds = 0; // ストップウォッチの追加時間をリセット
+            _countdownCompleted = true; // カウントダウン完了フラグを設定
             
-            // 終了時間を記録
-            _endTime = DateTime.now();
-            
-            // 達成お祝いアニメーションを表示
-            _showCelebrationAnimation();
+            // タイマーは継続して動作（ストップウォッチモードで）
+            // _isRunning は true のまま維持
           }
         } else {
           // ストップウォッチモード
@@ -177,6 +179,11 @@ class _TimerScreenState extends State<TimerScreen> with TickerProviderStateMixin
       // （スマホを触った回数のカウントから除外するため）
       if (_currentMode == TimerMode.stopwatch) {
         _isStoppingStopwatch = true;
+        
+        // カウントダウンが完了した後のストップウォッチ停止時のみ達成画面を表示
+        if (_countdownCompleted) {
+          _showCelebrationAnimation();
+        }
         
         // 少し遅延してフラグをリセット（ボタンタップのカウントを避けるため）
         Future.delayed(const Duration(milliseconds: 500), () {
